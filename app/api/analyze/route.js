@@ -8,7 +8,7 @@ export async function POST(request) {
       await request.json();
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
     const prompt = `Du bist ein Experte für den deutschen Kleinanzeigenmarkt (Kleinanzeigen.de).
 
@@ -28,7 +28,7 @@ Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Backticks, kein Text da
   "tags": ["tag1", "tag2", "tag3", "tag4"],
   "besonderheiten": ["Feature 1", "Feature 2", "Feature 3"],
   "versandMoeglich": true,
-  "empfKategoriePfad": "z.B. Elektronik > Audio > Kopfhörer"
+  "empfKategoriePfad": "z.B. Elektronik > Audio > Mikrofon"
 }`;
 
     const result = await model.generateContent([
