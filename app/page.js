@@ -79,7 +79,7 @@ function PhotoUploadArea({ onFiles }) {
       >
         <div style={{ fontSize: 22, marginBottom: 4 }}>🖼️</div>
         <div style={{ fontSize: 13, color: GOLD, marginBottom: 2 }}>Aus Galerie wählen</div>
-        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>1 oder 2 Fotos gleichzeitig wählbar</div>
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>bis zu 6 Fotos gleichzeitig wählbar</div>
       </div>
 
       {/* Kamera-Button */}
@@ -121,7 +121,7 @@ function Field({ label, value, onChange, multiline, rows = 5 }) {
 }
 
 export default function Home() {
-  const [photos, setPhotos] = useState([null, null]);
+  const [photos, setPhotos] = useState([null, null, null, null, null, null]);
   const [location, setLocation] = useState("St. Leon-Rot, 68789");
   const [step, setStep] = useState("upload");
   const [analysis, setAnalysis] = useState(null);
@@ -141,7 +141,7 @@ export default function Home() {
 
   // Mehrere Fotos auf einmal setzen — ein einziger setState-Aufruf
   const handleFiles = (fileList) => {
-    const files = Array.from(fileList).filter(f => f.type.startsWith("image/")).slice(0, 2);
+    const files = Array.from(fileList).filter(f => f.type.startsWith("image/")).slice(0, 6);
     if (files.length === 0) return;
     const updates = files.map(file => ({ file, preview: URL.createObjectURL(file) }));
     setPhotos(prev => {
@@ -163,19 +163,14 @@ export default function Home() {
     setError(null);
     try {
       // Bilder komprimieren vor dem Senden
-      const p1 = photos[0] || photos[1];
-      const p2 = photos[1] || photos[0];
-      const [c1, c2] = await Promise.all([
-        compressAndBase64(p1.file),
-        compressAndBase64(p2.file),
-      ]);
+      const activePhotos = photos.filter(p => p !== null);
+      const compressed = await Promise.all(activePhotos.map(p => compressAndBase64(p.file)));
 
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          photo1: c1.base64, photo2: c2.base64,
-          mimeType1: c1.mimeType, mimeType2: c2.mimeType,
+          photos: compressed,
           location, extraHint,
         }),
       });
@@ -218,7 +213,7 @@ ${listing.beschreibung}
 
   const reset = () => {
     photos.forEach(p => p?.preview && URL.revokeObjectURL(p.preview));
-    setPhotos([null, null]); setAnalysis(null); setListing(null); setStep("upload"); setCorrection("");
+    setPhotos([null, null, null, null, null, null]); setAnalysis(null); setListing(null); setStep("upload"); setCorrection("");
   };
 
   return (
@@ -246,8 +241,8 @@ ${listing.beschreibung}
         {/* UPLOAD */}
         {step === "upload" && (
           <div style={{ animation: "fadeUp 0.4s ease both" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 10 }}>
-              {[0, 1].map(i => <PhotoSlot key={i} index={i} photo={photos[i]} onFile={handleFile} onRemove={handleRemove} />)}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 10 }}>
+              {photos.map((photo, i) => <PhotoSlot key={i} index={i} photo={photo} onFile={handleFile} onRemove={handleRemove} />)}
             </div>
             <PhotoUploadArea onFiles={handleFiles} />
             <div style={{ height: 12 }} />
@@ -259,8 +254,8 @@ ${listing.beschreibung}
               </div>
             </div>
             {error && <div style={{ background: "rgba(200,50,50,0.08)", border: "1px solid rgba(200,50,50,0.25)", borderRadius: 10, padding: "12px 16px", marginBottom: 14, fontSize: 12, color: "#ff8080" }}>⚠ {error}</div>}
-            <button onClick={() => doAnalyze()} disabled={!photos[0] && !photos[1]} style={{ width: "100%", padding: "17px", borderRadius: 12, border: "none", background: (photos[0] || photos[1]) ? `linear-gradient(135deg, ${GOLD}, #b8962f)` : "rgba(255,255,255,0.06)", color: (photos[0] || photos[1]) ? "#0a0a0a" : "rgba(255,255,255,0.2)", fontSize: 14, fontWeight: "bold", letterSpacing: "0.08em", textTransform: "uppercase", cursor: (photos[0] || photos[1]) ? "pointer" : "not-allowed" }}>
-              {(photos[0] || photos[1]) ? "→ KI-Analyse starten" : "Mindestens 1 Foto hochladen"}
+            <button onClick={() => doAnalyze()} disabled={!photos.some(p => p !== null)} style={{ width: "100%", padding: "17px", borderRadius: 12, border: "none", background: photos.some(p => p) ? `linear-gradient(135deg, ${GOLD}, #b8962f)` : "rgba(255,255,255,0.06)", color: photos.some(p => p) ? "#0a0a0a" : "rgba(255,255,255,0.2)", fontSize: 14, fontWeight: "bold", letterSpacing: "0.08em", textTransform: "uppercase", cursor: photos.some(p => p) ? "pointer" : "not-allowed" }}>
+              {photos.some(p => p) ? "→ KI-Analyse starten" : "Mindestens 1 Foto hochladen"}
             </button>
           </div>
         )}

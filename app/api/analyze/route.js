@@ -53,8 +53,17 @@ function calculatePrice(priceData, zustandScore) {
 
 export async function POST(request) {
   try {
-    const { photo1, photo2, mimeType1, mimeType2, location, extraHint } =
-      await request.json();
+    const { photos, location, extraHint } = await request.json();
+    // Kompatibilität: mindestens 1 Foto, max 6
+    const photo1 = photos[0]?.base64;
+    const photo2 = photos[1]?.base64 || photos[0]?.base64;
+    const mimeType1 = photos[0]?.mimeType || "image/jpeg";
+    const mimeType2 = photos[1]?.mimeType || mimeType1;
+    // Alle Fotos als Content-Parts für die Analyse
+    const allPhotosParts = photos.map(p => ({
+      type: "image_url",
+      image_url: { url: `data:${p.mimeType};base64,${p.base64}`, detail: "low" }
+    }));
 
     const hintText = extraHint
       ? `Der Nutzer hat den Artikel korrigiert auf: "${extraHint}". Verwende diesen Namen.`
@@ -142,8 +151,7 @@ Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Backticks):
           role: "user",
           content: [
             { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: `data:${mimeType1};base64,${photo1}`, detail: "low" } },
-            { type: "image_url", image_url: { url: `data:${mimeType2};base64,${photo2}`, detail: "low" } },
+            ...allPhotosParts,
           ],
         }],
       }),
