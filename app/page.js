@@ -52,10 +52,10 @@ function PhotoSlot({ index, photo, onFile, onRemove }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 10 }}>
           <div style={{ fontSize: 38, opacity: 0.25 }}>📷</div>
-          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", textAlign: "center", lineHeight: 1.6 }}>Foto {index + 1}<br /><span style={{ fontSize: 10, opacity: 0.6 }}>tippen · ziehen</span></div>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", textAlign: "center", lineHeight: 1.6 }}>Foto {index + 1}<br /><span style={{ fontSize: 10, opacity: 0.6 }}>{index === 0 ? "beide gleichzeitig wählbar" : "tippen · ziehen"}</span></div>
         </div>
       )}
-      <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => handle(e.target.files[0])} />
+      <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => { const files = Array.from(e.target.files); files.slice(0, 2).forEach((file, i) => { if (file.type.startsWith("image/")) onFile(index === 0 ? i : index, file); }); }} />
     </div>
   );
 }
@@ -333,7 +333,7 @@ ${listing.beschreibung}
 
             {/* Schnellzugriff-Buttons */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-              <a href="https://m.kleinanzeigen.de/anzeige-aufgeben" target="_blank" rel="noreferrer" style={{ display: "block", padding: "14px", borderRadius: 12, background: `linear-gradient(135deg, ${GOLD}, #b8962f)`, color: "#0a0a0a", fontSize: 13, fontWeight: "bold", textAlign: "center", textDecoration: "none", letterSpacing: "0.05em" }}>
+              <a href="/api/redirect" target="_blank" rel="noreferrer" style={{ display: "block", padding: "14px", borderRadius: 12, background: `linear-gradient(135deg, ${GOLD}, #b8962f)`, color: "#0a0a0a", fontSize: 13, fontWeight: "bold", textAlign: "center", textDecoration: "none", letterSpacing: "0.05em" }}>
                 → Kleinanzeigen öffnen
               </a>
               <button onClick={() => { navigator.clipboard.writeText(listingText).catch(()=>{}); }} style={{ padding: "14px", borderRadius: 12, border: `1px solid ${GOLD_BORDER}`, background: GOLD_DIM, color: GOLD, fontSize: 13, fontWeight: "bold", cursor: "pointer", letterSpacing: "0.05em" }}>
@@ -353,7 +353,7 @@ ${listing.beschreibung}
           </div>
         )}
 
-        <a ref={linkRef} href="https://m.kleinanzeigen.de/anzeige-aufgeben" target="_blank" rel="noreferrer" style={{ display: "none" }}>kaz</a>
+        <a ref={linkRef} href="/api/redirect" target="_blank" rel="noreferrer" style={{ display: "none" }}>kaz</a>
 
         <footer style={{ marginTop: 50, textAlign: "center", fontSize: 10, color: "rgba(255,255,255,0.15)", lineHeight: 2 }}>
           Preise basieren auf Marktrecherche · Kein Anspruch auf Genauigkeit
