@@ -1,14 +1,9 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
 export const maxDuration = 60;
 
 export async function POST(request) {
   try {
     const { photo1, photo2, mimeType1, mimeType2, location } =
       await request.json();
-
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
     const prompt = `Du bist ein Experte für den deutschen Kleinanzeigenmarkt (Kleinanzeigen.de).
 
@@ -31,13 +26,33 @@ Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Backticks, kein Text da
   "empfKategoriePfad": "z.B. Elektronik > Audio > Mikrofon"
 }`;
 
-    const result = await model.generateContent([
-      prompt,
-      { inlineData: { mimeType: mimeType1, data: photo1 } },
-      { inlineData: { mimeType: mimeType2, data: photo2 } },
-    ]);
+    const apiKey = process.env.GEMINI_API_KEY;
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
-    const raw = result.response.text();
+    const body = {
+      contents: [{
+        parts: [
+          { text: prompt },
+          { inline_data: { mime_type: mimeType1, data: photo1 } },
+          { inline_data: { mime_type: mimeType2, data: photo2 } },
+        ]
+      }],
+      generationConfig: { temperature: 0.4 }
+    };
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err);
+    }
+
+    const data = await res.json();
+    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
     const clean = raw.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(clean);
 
