@@ -61,26 +61,44 @@ function PhotoSlot({ index, photo, onFile, onRemove }) {
   );
 }
 
-// Gemeinsamer Upload-Bereich
-function MultiPhotoUpload({ onFiles }) {
-  const inputRef = useRef();
+// Upload-Bereich: Galerie (mehrere) + Kamera (1 Foto für beide Slots)
+function PhotoUploadArea({ onFiles }) {
+  const galleryRef = useRef();
+  const cameraRef = useRef();
   const [drag, setDrag] = useState(false);
-  const process = (fileList) => {
-    const files = Array.from(fileList).filter(f => f.type.startsWith("image/")).slice(0, 2);
-    files.forEach((file, i) => onFiles(i, file));
-  };
+
   return (
-    <div
-      onClick={() => inputRef.current.click()}
-      onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-      onDragLeave={() => setDrag(false)}
-      onDrop={(e) => { e.preventDefault(); setDrag(false); process(e.dataTransfer.files); }}
-      style={{ width: "100%", padding: "18px", borderRadius: 12, border: `2px dashed ${drag ? GOLD : GOLD_BORDER}`, background: drag ? GOLD_DIM : "rgba(255,255,255,0.02)", cursor: "pointer", textAlign: "center", marginTop: 10, transition: "all 0.2s" }}
-    >
-      <div style={{ fontSize: 24, marginBottom: 6 }}>📷</div>
-      <div style={{ fontSize: 13, color: GOLD, marginBottom: 4 }}>1 oder 2 Fotos auswählen</div>
-      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>tippen · ziehen · mehrere gleichzeitig wählbar</div>
-      <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => process(e.target.files)} />
+    <div style={{ marginTop: 10 }}>
+      {/* Drag & Drop Zone */}
+      <div
+        onClick={() => galleryRef.current.click()}
+        onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={(e) => { e.preventDefault(); setDrag(false); onFiles(e.dataTransfer.files); }}
+        style={{ width: "100%", padding: "16px", borderRadius: 12, border: `2px dashed ${drag ? GOLD : GOLD_BORDER}`, background: drag ? GOLD_DIM : "rgba(255,255,255,0.02)", cursor: "pointer", textAlign: "center", marginBottom: 10, transition: "all 0.2s" }}
+      >
+        <div style={{ fontSize: 22, marginBottom: 4 }}>🖼️</div>
+        <div style={{ fontSize: 13, color: GOLD, marginBottom: 2 }}>Aus Galerie wählen</div>
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>1 oder 2 Fotos gleichzeitig wählbar</div>
+      </div>
+
+      {/* Kamera-Button */}
+      <button
+        onClick={() => cameraRef.current.click()}
+        style={{ width: "100%", padding: "13px", borderRadius: 12, border: `1px solid rgba(255,255,255,0.12)`, background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.6)", fontSize: 13, cursor: "pointer", letterSpacing: "0.04em" }}
+      >
+        📸 Foto aufnehmen (wird für beide Slots verwendet)
+      </button>
+
+      {/* Galerie Input — mehrere */}
+      <input ref={galleryRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => onFiles(e.target.files)} />
+      {/* Kamera Input — einzeln, geht in beide Slots */}
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
+        onChange={(e) => {
+          const file = e.target.files[0];
+          if (file) onFiles([file, file]);
+        }}
+      />
     </div>
   );
 }
@@ -114,9 +132,23 @@ export default function Home() {
 
   const handleFile = (index, file) => {
     const preview = URL.createObjectURL(file);
-    const next = [...photos];
-    next[index] = { file, preview };
-    setPhotos(next);
+    setPhotos(prev => {
+      const next = [...prev];
+      next[index] = { file, preview };
+      return next;
+    });
+  };
+
+  // Mehrere Fotos auf einmal setzen — ein einziger setState-Aufruf
+  const handleFiles = (fileList) => {
+    const files = Array.from(fileList).filter(f => f.type.startsWith("image/")).slice(0, 2);
+    if (files.length === 0) return;
+    const updates = files.map(file => ({ file, preview: URL.createObjectURL(file) }));
+    setPhotos(prev => {
+      const next = [...prev];
+      updates.forEach((u, i) => { next[i] = u; });
+      return next;
+    });
   };
 
   const handleRemove = (index) => {
@@ -217,7 +249,7 @@ ${listing.beschreibung}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 10 }}>
               {[0, 1].map(i => <PhotoSlot key={i} index={i} photo={photos[i]} onFile={handleFile} onRemove={handleRemove} />)}
             </div>
-            <MultiPhotoUpload onFiles={handleFile} />
+            <PhotoUploadArea onFiles={handleFiles} />
             <div style={{ height: 12 }} />
             <div style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
               <span style={{ fontSize: 16, opacity: 0.5 }}>◎</span>
