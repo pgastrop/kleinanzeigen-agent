@@ -148,10 +148,13 @@ ${listing.beschreibung}
 
 🏷️ ${listing.kategorie}${analysis?.tags?.length ? "\n" + analysis.tags.map(t => "#" + t).join(" ") : ""}` : "";
 
+  const linkRef = useRef(null);
+
   const handleFreigabe = () => {
     navigator.clipboard.writeText(listingText).catch(() => {});
     setStep("done");
-    setTimeout(() => window.open("https://www.kleinanzeigen.de/anzeige-aufgeben", "_blank"), 600);
+    // Echter Link-Click umgeht Popup-Blocker auf Mobilgeräten
+    setTimeout(() => { if (linkRef.current) linkRef.current.click(); }, 300);
   };
 
   const reset = () => {
@@ -225,7 +228,7 @@ ${listing.beschreibung}
                   <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginTop: 4 }}>Markt: {analysis.preisRange} €</div>
                 </div>
               </div>
-              <div style={{ marginTop: 12, fontSize: 12, color: "rgba(255,255,255,0.4)", lineHeight: 1.6, fontStyle: "italic" }}>💡 {analysis.preisBegruendung}</div>
+              <div style={{ marginTop: 12, fontSize: 12, color: "rgba(255,255,255,0.4)", lineHeight: 1.6, fontStyle: "italic" }}>💡 {analysis.preisStrategie || analysis.preisBegruendung}</div>
             </div>
 
             {/* KORREKTUR — immer sichtbar */}
@@ -314,8 +317,10 @@ ${listing.beschreibung}
           </div>
         )}
 
+        <a ref={linkRef} href="https://www.kleinanzeigen.de/anzeige-aufgeben" target="_blank" rel="noreferrer" style={{ display: "none" }}>kaz</a>
+
         <footer style={{ marginTop: 50, textAlign: "center", fontSize: 10, color: "rgba(255,255,255,0.15)", lineHeight: 2 }}>
-          Preise basieren auf KI-Schätzung · Kein Anspruch auf Marktgenauigkeit
+          Preise basieren auf Marktrecherche · Kein Anspruch auf Genauigkeit
         </footer>
       </div>
     </main>
