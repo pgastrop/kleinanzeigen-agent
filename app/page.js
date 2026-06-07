@@ -297,6 +297,8 @@ export default function Home() {
   const [copied, setCopied]       = useState(false);
   const [activeStyle, setActiveStyle] = useState(null);
   const [styleLoading, setStyleLoading] = useState(false);
+  const [priceType, setPriceType] = useState("fest");    // fest | vb
+  const [deliveryType, setDeliveryType] = useState("beide"); // abholung | versand | beide
 
   // ── Persistenz: in localStorage speichern bei Änderung ──
   useEffect(() => {
@@ -374,15 +376,26 @@ export default function Home() {
   };
 
   /* listing text */
-  const makeText = (l, a) => !l ? "" :
-    `📦 ${l.titel}\n💰 ${l.preis} €${l.versand ? " · Versand möglich" : " · Nur Abholung"}\n📍 ${l.ort}\n⭐ Zustand: ${l.zustand}\n\n${l.beschreibung}\n\n🏷️ ${l.kategorie}${a?.tags?.length ? "\n" + a.tags.map(t => "#" + t).join(" ") : ""}`;
+  const makePriceLabel = (preis, pt) => {
+    if (pt === "vb") return `${preis} € VB`;
+    return `${preis} € (Festpreis)`;
+  };
 
-  const listingText = makeText(listing, analysis);
+  const makeDeliveryLabel = (dt) => {
+    if (dt === "abholung") return "Nur Abholung";
+    if (dt === "versand")  return "Versand möglich";
+    return "Abholung oder Versand möglich";
+  };
+
+  const makeText = (l, a, pt, dt) => !l ? "" :
+    `📦 ${l.titel}\n💰 ${makePriceLabel(l.preis, pt ?? "fest")}\n📍 ${l.ort}\n⭐ Zustand: ${l.zustand}\n🚚 ${makeDeliveryLabel(dt ?? "beide")}\n\n${l.beschreibung}\n\n🏷️ ${l.kategorie}${a?.tags?.length ? "\n" + a.tags.map(t => "#" + t).join(" ") : ""}`;
+
+  const listingText = makeText(listing, analysis, priceType, deliveryType);
 
   /* save */
   const saveToQueue = async () => {
     const previews = (await Promise.all(photos.filter(p => p !== null).map(p => makeThumbnail(p.preview)))).filter(Boolean);
-    const item = { analysis, listing: { ...listing }, previews, id: Date.now() };
+    const item = { analysis, listing: { ...listing }, previews, id: Date.now(), priceType, deliveryType };
     if (editingIdx !== null) {
       setQueue(prev => { const q = [...prev]; q[editingIdx] = item; return q; });
       setEditingIdx(null);
@@ -396,6 +409,8 @@ export default function Home() {
   const editQueueItem = idx => {
     const item = queue[idx];
     setAnalysis(item.analysis); setListing({ ...item.listing });
+    if (item.priceType) setPriceType(item.priceType);
+    if (item.deliveryType) setDeliveryType(item.deliveryType);
     setEditingIdx(idx); clearPhotos(); setCorrection(""); setTab("edit");
     setStep("result");
   };
@@ -403,17 +418,17 @@ export default function Home() {
   const removeFromQueue = idx => setQueue(prev => prev.filter((_, i) => i !== idx));
 
   /* publish */
-  const publishItem = (l, a, idx = null) => {
-    const text = makeText(l, a);
+  const publishItem = (l, a, idx = null, pt, dt) => {
+    const text = makeText(l, a, pt ?? priceType, dt ?? deliveryType);
     navigator.clipboard.writeText(text).catch(() => {});
-    setPublishSnap({ listing: l, analysis: a, text });
+    setPublishSnap({ listing: l, analysis: a, text, priceType: pt ?? priceType, deliveryType: dt ?? deliveryType });
     setPublishIdx(idx);
     setStep("publish");
     setTimeout(() => linkRef.current?.click(), 500);
   };
 
   const publishCurrent  = ()    => publishItem({ ...listing }, { ...analysis }, null);
-  const publishSingle   = idx   => publishItem({ ...queue[idx].listing }, { ...queue[idx].analysis }, idx);
+  const publishSingle   = idx   => publishItem({ ...queue[idx].listing }, { ...queue[idx].analysis }, idx, queue[idx].priceType, queue[idx].deliveryType);
 
   const copyText = text => {
     navigator.clipboard.writeText(text).catch(() => {});
@@ -636,6 +651,63 @@ export default function Home() {
               )}
             </Card>
 
+            {/* Preis & Lieferung Optionen */}
+            <Card style={{ padding: 16, marginBottom: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+
+                {/* Preistyp */}
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 8 }}>Preistyp</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {[
+                      { key: "fest", label: "Festpreis",         icon: "🔒", desc: "Kein Rabatt" },
+                      { key: "vb",   label: "Verhandlungsbasis", icon: "🤝", desc: "Preis verhandelbar" },
+                    ].map(o => (
+                      <button key={o.key} onClick={() => setPriceType(o.key)} style={{
+                        display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+                        borderRadius: "var(--radius-xs)", border: priceType === o.key ? "2px solid var(--orange)" : "1.5px solid var(--border)",
+                        background: priceType === o.key ? "var(--orange-bg)" : "var(--bg3)",
+                        cursor: "pointer", textAlign: "left", transition: "all 0.15s",
+                      }}>
+                        <span style={{ fontSize: 16 }}>{o.icon}</span>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: priceType === o.key ? "var(--orange-dark)" : "var(--text)" }}>{o.label}</div>
+                          <div style={{ fontSize: 10, color: "var(--text3)" }}>{o.desc}</div>
+                        </div>
+                        {priceType === o.key && <span style={{ marginLeft: "auto", color: "var(--orange)", fontWeight: 800, fontSize: 14 }}>✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Lieferung */}
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 8 }}>Übergabe</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {[
+                      { key: "abholung", label: "Nur Abholung", icon: "🏠", desc: "Zu groß / zu schwer" },
+                      { key: "versand",  label: "Nur Versand",  icon: "📦", desc: "Versandfertig" },
+                      { key: "beide",    label: "Beides",       icon: "✅", desc: "Flexibel" },
+                    ].map(o => (
+                      <button key={o.key} onClick={() => setDeliveryType(o.key)} style={{
+                        display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+                        borderRadius: "var(--radius-xs)", border: deliveryType === o.key ? "2px solid var(--orange)" : "1.5px solid var(--border)",
+                        background: deliveryType === o.key ? "var(--orange-bg)" : "var(--bg3)",
+                        cursor: "pointer", textAlign: "left", transition: "all 0.15s",
+                      }}>
+                        <span style={{ fontSize: 16 }}>{o.icon}</span>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: deliveryType === o.key ? "var(--orange-dark)" : "var(--text)" }}>{o.label}</div>
+                          <div style={{ fontSize: 10, color: "var(--text3)" }}>{o.desc}</div>
+                        </div>
+                        {deliveryType === o.key && <span style={{ marginLeft: "auto", color: "var(--orange)", fontWeight: 800, fontSize: 14 }}>✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </Card>
+
             {/* Correction */}
             <Card style={{ padding: 16, marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 10 }}>Artikel falsch erkannt?</div>
@@ -734,9 +806,9 @@ export default function Home() {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0 2px", borderTop: "1px solid var(--border2)" }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 2 }}>Versand möglich</div>
-                    <div style={{ fontSize: 11, color: "var(--text3)" }}>Deutschlandweiter Versand anbieten</div>
+                    <div style={{ fontSize: 11, color: "var(--text3)" }}>Ändert auch die Übergabe-Option oben</div>
                   </div>
-                  <Toggle value={listing.versand} onChange={v => setListing({ ...listing, versand: v })} />
+                  <Toggle value={deliveryType !== "abholung"} onChange={v => setDeliveryType(v ? "beide" : "abholung")} />
                 </div>
               </Card>
             )}
