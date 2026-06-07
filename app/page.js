@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 /* ─── helpers ─── */
 function compressImage(file) {
@@ -273,19 +273,37 @@ export default function Home() {
   const MAX = 6;
   const empty = () => Array(MAX).fill(null);
 
+  // ── Persistenz: aus localStorage laden beim Start ──
+  const loadFromStorage = (key, fallback) => {
+    if (typeof window === "undefined") return fallback;
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch { return fallback; }
+  };
+
   const [photos, setPhotos]       = useState(empty());
-  const [location, setLocation]   = useState("St. Leon-Rot, 68789");
+  const [location, setLocation]   = useState(() => loadFromStorage("kaz_location", "St. Leon-Rot, 68789"));
   const [step, setStep]           = useState("upload");
   const [analysis, setAnalysis]   = useState(null);
   const [listing, setListing]     = useState(null);
   const [error, setError]         = useState(null);
   const [correction, setCorrection] = useState("");
   const [tab, setTab]             = useState("preview");
-  const [queue, setQueue]         = useState([]);
+  const [queue, setQueue]         = useState(() => loadFromStorage("kaz_queue", []));
   const [editingIdx, setEditingIdx] = useState(null);
   const [publishSnap, setPublishSnap] = useState(null);
   const [publishIdx, setPublishIdx]   = useState(null);
   const [copied, setCopied]       = useState(false);
+
+  // ── Persistenz: in localStorage speichern bei Änderung ──
+  useEffect(() => {
+    try { localStorage.setItem("kaz_queue", JSON.stringify(queue)); } catch {}
+  }, [queue]);
+
+  useEffect(() => {
+    try { localStorage.setItem("kaz_location", JSON.stringify(location)); } catch {}
+  }, [location]);
 
   const galleryRef = useRef();
   const cameraRef  = useRef();
@@ -406,6 +424,14 @@ export default function Home() {
     setEditingIdx(null); setPublishIdx(null); setPublishSnap(null);
   };
 
+  const clearAllData = () => {
+    if (!confirm("Alle gespeicherten Artikel und Daten löschen?")) return;
+    setQueue([]);
+    clearPhotos(); setAnalysis(null); setListing(null);
+    setStep("upload"); setEditingIdx(null); setPublishSnap(null);
+    try { localStorage.removeItem("kaz_queue"); } catch {}
+  };
+
   /* ── RENDER ── */
   return (
     <main style={{ minHeight: "100vh", padding: "40px 16px 100px" }}>
@@ -445,6 +471,14 @@ export default function Home() {
               <span style={{ width: 20, height: 20, borderRadius: "50%", background: "var(--orange)", color: "#fff", fontSize: 10, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{queue.length}</span>
               {queue.length} Artikel in Warteschlange →
             </button>
+          )}
+          {/* Storage indicator */}
+          {queue.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 8, fontSize: 11, color: "var(--text3)" }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)", display: "inline-block" }} />
+              Automatisch gespeichert
+              <button onClick={clearAllData} style={{ background: "none", border: "none", color: "var(--text3)", fontSize: 11, cursor: "pointer", textDecoration: "underline", padding: 0 }}>· Alles löschen</button>
+            </div>
           )}
         </header>
 
