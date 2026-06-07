@@ -258,6 +258,11 @@ ${listing.beschreibung}
                 </div>
               </div>
               <div style={{ marginTop: 12, fontSize: 12, color: "rgba(255,255,255,0.4)", lineHeight: 1.6, fontStyle: "italic" }}>💡 {analysis.preisStrategie || analysis.preisBegruendung}</div>
+              {analysis.marktdaten && (
+                <div style={{ marginTop: 8, fontSize: 11, color: "rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.04)", borderRadius: 6, padding: "6px 10px" }}>
+                  📊 Marktdaten: {analysis.marktdaten}
+                </div>
+              )}
             </div>
 
             {/* KORREKTUR — immer sichtbar */}
