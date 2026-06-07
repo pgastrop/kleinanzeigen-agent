@@ -301,17 +301,53 @@ ${listing.beschreibung}
         )}
 
         {/* DONE */}
-        {step === "done" && (
-          <div style={{ textAlign: "center", padding: "40px 0", animation: "fadeUp 0.4s ease both" }}>
-            <div style={{ fontSize: 64, marginBottom: 20 }}>🎉</div>
-            <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, marginBottom: 10 }}>Freigegeben!</div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", lineHeight: 1.8, marginBottom: 28 }}>
-              Text ist in der Zwischenablage.<br />Kleinanzeigen.de wurde geöffnet — einfach einfügen.
+        {step === "done" && listing && (
+          <div style={{ animation: "fadeUp 0.4s ease both" }}>
+            <div style={{ textAlign: "center", marginBottom: 28 }}>
+              <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, marginBottom: 8 }}>Freigegeben!</div>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", lineHeight: 1.8 }}>
+                Text ist in der Zwischenablage kopiert.
+              </div>
             </div>
-            <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: "16px 18px", marginBottom: 20, textAlign: "left" }}>
-              <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.7, fontFamily: "monospace" }}>{listingText}</pre>
+
+            {/* Schritt-für-Schritt auf Kleinanzeigen */}
+            <div style={{ background: "rgba(212,175,55,0.05)", border: `1px solid ${GOLD_BORDER}`, borderRadius: 14, padding: "20px 22px", marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: GOLD, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>So geht es weiter auf Kleinanzeigen:</div>
+              {[
+                { n: "1", text: "Kleinanzeigen öffnen & einloggen", sub: "Klicke den Button unten" },
+                { n: "2", text: "Kategorie wählen", sub: listing.kategorie },
+                { n: "3", text: 'Auf "Anzeige aufgeben" klicken', sub: "Dann das Autofill-Bookmarklet starten" },
+                { n: "4", text: "Titel & Beschreibung einfügen (Strg+V)", sub: "Text ist in der Zwischenablage" },
+                { n: "5", text: `Preis eintragen: ${listing.preis} €`, sub: "Fotos separat hochladen" },
+              ].map(s => (
+                <div key={s.n} style={{ display: "flex", gap: 14, marginBottom: 14, alignItems: "flex-start" }}>
+                  <div style={{ width: 26, height: 26, borderRadius: "50%", background: GOLD, color: "#000", fontSize: 12, fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{s.n}</div>
+                  <div>
+                    <div style={{ fontSize: 13, color: "#f0ede8", marginBottom: 2 }}>{s.text}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>{s.sub}</div>
+                  </div>
+                </div>
+              ))}
             </div>
-            <button onClick={reset} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${GOLD}, #b8962f)`, color: "#0a0a0a", fontSize: 13, fontWeight: "bold", letterSpacing: "0.08em", cursor: "pointer" }}>
+
+            {/* Schnellzugriff-Buttons */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+              <a href="https://www.kleinanzeigen.de/anzeige-aufgeben" target="_blank" rel="noreferrer" style={{ display: "block", padding: "14px", borderRadius: 12, background: `linear-gradient(135deg, ${GOLD}, #b8962f)`, color: "#0a0a0a", fontSize: 13, fontWeight: "bold", textAlign: "center", textDecoration: "none", letterSpacing: "0.05em" }}>
+                → Kleinanzeigen öffnen
+              </a>
+              <button onClick={() => { navigator.clipboard.writeText(listingText).catch(()=>{}); }} style={{ padding: "14px", borderRadius: 12, border: `1px solid ${GOLD_BORDER}`, background: GOLD_DIM, color: GOLD, fontSize: 13, fontWeight: "bold", cursor: "pointer", letterSpacing: "0.05em" }}>
+                📋 Text kopieren
+              </button>
+            </div>
+
+            {/* Anzeigentext Vorschau */}
+            <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "16px 18px", marginBottom: 16 }}>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>Dein Anzeigentext</div>
+              <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, color: "rgba(255,255,255,0.6)", lineHeight: 1.7, fontFamily: "monospace" }}>{listingText}</pre>
+            </div>
+
+            <button onClick={reset} style={{ width: "100%", padding: "14px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.1)", background: "none", color: "rgba(255,255,255,0.4)", fontSize: 12, cursor: "pointer", letterSpacing: "0.06em" }}>
               ↺ Neuen Artikel aufgeben
             </button>
           </div>
