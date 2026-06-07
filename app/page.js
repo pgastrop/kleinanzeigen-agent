@@ -61,29 +61,27 @@ function PhotoSlot({ index, photo, onFile, onRemove }) {
   );
 }
 
-// Gemeinsamer Button: beide Fotos auf einmal wählen
-function BothPhotosButton({ onFiles }) {
+// Gemeinsamer Upload-Bereich
+function MultiPhotoUpload({ onFiles }) {
   const inputRef = useRef();
+  const [drag, setDrag] = useState(false);
+  const process = (fileList) => {
+    const files = Array.from(fileList).filter(f => f.type.startsWith("image/")).slice(0, 2);
+    files.forEach((file, i) => onFiles(i, file));
+  };
   return (
-    <>
-      <button
-        onClick={() => inputRef.current.click()}
-        style={{ width: "100%", padding: "12px", borderRadius: 10, border: `1px dashed ${GOLD_BORDER}`, background: GOLD_DIM, color: GOLD, fontSize: 12, cursor: "pointer", letterSpacing: "0.06em", marginTop: 10 }}
-      >
-        📷 Beide Fotos gleichzeitig auswählen
-      </button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        style={{ display: "none" }}
-        onChange={(e) => {
-          const files = Array.from(e.target.files).filter(f => f.type.startsWith("image/"));
-          files.slice(0, 2).forEach((file, i) => onFiles(i, file));
-        }}
-      />
-    </>
+    <div
+      onClick={() => inputRef.current.click()}
+      onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+      onDragLeave={() => setDrag(false)}
+      onDrop={(e) => { e.preventDefault(); setDrag(false); process(e.dataTransfer.files); }}
+      style={{ width: "100%", padding: "18px", borderRadius: 12, border: `2px dashed ${drag ? GOLD : GOLD_BORDER}`, background: drag ? GOLD_DIM : "rgba(255,255,255,0.02)", cursor: "pointer", textAlign: "center", marginTop: 10, transition: "all 0.2s" }}
+    >
+      <div style={{ fontSize: 24, marginBottom: 6 }}>📷</div>
+      <div style={{ fontSize: 13, color: GOLD, marginBottom: 4 }}>1 oder 2 Fotos auswählen</div>
+      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>tippen · ziehen · mehrere gleichzeitig wählbar</div>
+      <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => process(e.target.files)} />
+    </div>
   );
 }
 
@@ -133,9 +131,11 @@ export default function Home() {
     setError(null);
     try {
       // Bilder komprimieren vor dem Senden
+      const p1 = photos[0] || photos[1];
+      const p2 = photos[1] || photos[0];
       const [c1, c2] = await Promise.all([
-        compressAndBase64(photos[0].file),
-        compressAndBase64(photos[1].file),
+        compressAndBase64(p1.file),
+        compressAndBase64(p2.file),
       ]);
 
       const res = await fetch("/api/analyze", {
@@ -217,7 +217,7 @@ ${listing.beschreibung}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 10 }}>
               {[0, 1].map(i => <PhotoSlot key={i} index={i} photo={photos[i]} onFile={handleFile} onRemove={handleRemove} />)}
             </div>
-            <BothPhotosButton onFiles={handleFile} />
+            <MultiPhotoUpload onFiles={handleFile} />
             <div style={{ height: 12 }} />
             <div style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
               <span style={{ fontSize: 16, opacity: 0.5 }}>◎</span>
@@ -227,8 +227,8 @@ ${listing.beschreibung}
               </div>
             </div>
             {error && <div style={{ background: "rgba(200,50,50,0.08)", border: "1px solid rgba(200,50,50,0.25)", borderRadius: 10, padding: "12px 16px", marginBottom: 14, fontSize: 12, color: "#ff8080" }}>⚠ {error}</div>}
-            <button onClick={() => doAnalyze()} disabled={!photos[0] || !photos[1]} style={{ width: "100%", padding: "17px", borderRadius: 12, border: "none", background: photos[0] && photos[1] ? `linear-gradient(135deg, ${GOLD}, #b8962f)` : "rgba(255,255,255,0.06)", color: photos[0] && photos[1] ? "#0a0a0a" : "rgba(255,255,255,0.2)", fontSize: 14, fontWeight: "bold", letterSpacing: "0.08em", textTransform: "uppercase", cursor: photos[0] && photos[1] ? "pointer" : "not-allowed" }}>
-              {photos[0] && photos[1] ? "→ KI-Analyse starten" : `Noch ${[!photos[0], !photos[1]].filter(Boolean).length} Foto(s) fehlen`}
+            <button onClick={() => doAnalyze()} disabled={!photos[0] && !photos[1]} style={{ width: "100%", padding: "17px", borderRadius: 12, border: "none", background: (photos[0] || photos[1]) ? `linear-gradient(135deg, ${GOLD}, #b8962f)` : "rgba(255,255,255,0.06)", color: (photos[0] || photos[1]) ? "#0a0a0a" : "rgba(255,255,255,0.2)", fontSize: 14, fontWeight: "bold", letterSpacing: "0.08em", textTransform: "uppercase", cursor: (photos[0] || photos[1]) ? "pointer" : "not-allowed" }}>
+              {(photos[0] || photos[1]) ? "→ KI-Analyse starten" : "Mindestens 1 Foto hochladen"}
             </button>
           </div>
         )}
