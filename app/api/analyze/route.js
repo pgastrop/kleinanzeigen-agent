@@ -2,12 +2,16 @@ export const maxDuration = 60;
 
 export async function POST(request) {
   try {
-    const { photo1, photo2, mimeType1, mimeType2, location } =
+    const { photo1, photo2, mimeType1, mimeType2, location, extraHint } =
       await request.json();
+
+    const hintText = extraHint
+      ? `\n\nWICHTIG: Der Nutzer hat den Artikel korrigiert: "${extraHint}". Verwende diesen Namen als Basis für die Analyse.`
+      : "";
 
     const prompt = `Du bist ein Experte für den deutschen Kleinanzeigenmarkt (Kleinanzeigen.de).
 
-Analysiere diese zwei Produktfotos und erstelle eine vollständige Verkaufsanalyse für den Standort ${location}.
+Analysiere diese zwei Produktfotos und erstelle eine vollständige Verkaufsanalyse für den Standort ${location}.${hintText}
 
 Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Backticks, kein Text davor oder danach):
 {
@@ -35,16 +39,14 @@ Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Backticks, kein Text da
       body: JSON.stringify({
         model: "gpt-4o-mini",
         max_tokens: 1500,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: prompt },
-              { type: "image_url", image_url: { url: `data:${mimeType1};base64,${photo1}`, detail: "low" } },
-              { type: "image_url", image_url: { url: `data:${mimeType2};base64,${photo2}`, detail: "low" } },
-            ],
-          },
-        ],
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: `data:${mimeType1};base64,${photo1}`, detail: "low" } },
+            { type: "image_url", image_url: { url: `data:${mimeType2};base64,${photo2}`, detail: "low" } },
+          ],
+        }],
       }),
     });
 
@@ -61,9 +63,6 @@ Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Backticks, kein Text da
     return Response.json({ success: true, data: parsed });
   } catch (error) {
     console.error("OpenAI error:", error);
-    return Response.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
+    return Response.json({ success: false, error: error.message }, { status: 500 });
   }
 }
