@@ -8,7 +8,7 @@ function compressImage(file) {
     const url = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const MAX = 1024;
+      const MAX = 1536; // höher für Texterkennung (detail: high)
       let w = img.width, h = img.height;
       if (w > MAX || h > MAX) {
         if (w > h) { h = Math.round(h * MAX / w); w = MAX; }

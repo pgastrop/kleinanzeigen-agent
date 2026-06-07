@@ -69,7 +69,13 @@ export async function POST(request) {
     /* ── Step 1: Identify product + condition ── */
     const idPrompt = extraHint
       ? `Der Nutzer nennt das Produkt: "${extraHint}". Gib NUR zurück: Produktname (max 5 Wörter), Komma, Zustandszahl 0.5-1.0. Beispiel: "RØDE NT-USB Mikrofon, 0.8"`
-      : `Erkenne Marke und Modell auf dem Foto. Antworte NUR mit: Produktname (max 5 Wörter), Komma, Zustandszahl 0.5-1.0 (1.0=Neu 0.9=WieNeu 0.8=SehrGut 0.7=Gut 0.6=Befriedigend 0.5=Defekt). Beispiel: "Sony WH-1000XM4, 0.8"`;
+      : `Analysiere das Foto präzise:
+1. Lies ALLEN sichtbaren Text auf dem Produkt: Markennamen, Modellbezeichnungen, Seriennummern, Typenschilder, Aufdrucke, Logos, EAN/Barcodes, technische Angaben (Watt, Volt, etc.)
+2. Nutze diesen Text als primäre Quelle für die Produktidentifikation — er ist zuverlässiger als visuelle Schätzung
+3. Erkenne zusätzlich Form, Farbe und Kategorie des Produkts
+
+Antworte NUR mit: Vollständiger Produktname inkl. Modellnummer falls lesbar (max 6 Wörter), Komma, Zustandszahl 0.5-1.0 (1.0=Neu 0.9=WieNeu 0.8=SehrGut 0.7=Gut 0.6=Befriedigend 0.5=Defekt)
+Beispiele: "RØDE NT-USB Mikrofon, 0.8" / "Bosch PSB 18 LI-2, 0.7" / "Sony WH-1000XM4, 0.9"`;
 
     const idRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -80,7 +86,7 @@ export async function POST(request) {
           role: "user",
           content: [
             { type: "text", text: idPrompt },
-            { type: "image_url", image_url: { url: `data:${primaryPhoto.mimeType};base64,${primaryPhoto.base64}`, detail: "low" } },
+            { type: "image_url", image_url: { url: `data:${primaryPhoto.mimeType};base64,${primaryPhoto.base64}`, detail: "high" } },
           ],
         }],
       }),
@@ -114,10 +120,15 @@ export async function POST(request) {
       : "Schätzung ohne Marktdaten";
 
     /* ── Step 3: Generate full listing text ── */
-    const prompt = `Du bist ein erfahrener Kleinanzeigen-Verkäufer in Deutschland.
+    const prompt = `Du bist ein erfahrener Kleinanzeigen-Verkäufer in Deutschland mit perfekter Lesefähigkeit für Produkttexte.
 
 Produkt: "${detectedName}", Zustand: "${zustand}", Standort: ${location}
 ${priceInstruction}
+
+WICHTIG zur Produktanalyse:
+- Lies ALLEN sichtbaren Text auf den Fotos sorgfältig: Typenschilder, Seriennummern, Modellnummern, technische Daten, Zubehör-Aufdrucke
+- Extrahiere alle relevanten Produktmerkmale die auf den Fotos lesbar sind (Watt, Volt, Liter, Größe, Farbe, Version etc.)
+- Nutze diese Informationen für einen präzisen, faktischen Anzeigentext
 
 Schreibe eine professionelle, ehrliche Anzeige. Erfinde keinen anderen Preis.
 
@@ -141,7 +152,7 @@ Antworte NUR mit validem JSON (kein Markdown, keine Backticks, kein Text außerh
 
     const allPhotosParts = validPhotos.map(p => ({
       type: "image_url",
-      image_url: { url: `data:${p.mimeType};base64,${p.base64}`, detail: "low" },
+      image_url: { url: `data:${p.mimeType};base64,${p.base64}`, detail: "high" },
     }));
 
     const analysisRes = await fetch("https://api.openai.com/v1/chat/completions", {
