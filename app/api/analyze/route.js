@@ -2,7 +2,7 @@ export const maxDuration = 60;
 
 async function scrapeKleinanzeigenPrices(produktName) {
   try {
-    const query = encodeURIComponent(produktName);
+    const query = encodeURIComponent(produktName.trim());
     const url = `https://www.kleinanzeigen.de/seite:1/s-${query}/k0`;
 
     const res = await fetch(url, {
@@ -18,158 +18,166 @@ async function scrapeKleinanzeigenPrices(produktName) {
     const html = await res.text();
 
     const priceMatches = [...html.matchAll(/(\d{1,2}\.?\d{3}|\d{1,4})\s*€/g)]
-      .map(m => parseInt(m[1].replace(".", "")))
-      .filter(p => p >= 1 && p <= 50000);
+      .map(m => parseInt(m[1].replace(/\./g, ""), 10))
+      .filter(p => Number.isFinite(p) && p >= 1 && p <= 50000);
 
     if (priceMatches.length < 3) return null;
 
     priceMatches.sort((a, b) => a - b);
-
-    // Ausreißer entfernen (unterstes 10%, oberstes 20%)
-    const trimLow = Math.floor(priceMatches.length * 0.1);
+    const trimLow  = Math.floor(priceMatches.length * 0.1);
     const trimHigh = Math.floor(priceMatches.length * 0.2);
-    const trimmed = priceMatches.slice(trimLow, priceMatches.length - trimHigh);
+    const trimmed  = priceMatches.slice(trimLow, priceMatches.length - trimHigh);
+    if (trimmed.length < 2) return null;
 
-    const min = trimmed[0];
-    const max = trimmed[trimmed.length - 1];
+    const min    = trimmed[0];
+    const max    = trimmed[trimmed.length - 1];
     const median = trimmed[Math.floor(trimmed.length / 2)];
-    const avg = Math.round(trimmed.reduce((a, b) => a + b, 0) / trimmed.length);
 
-    return { min, max, median, avg, count: priceMatches.length };
+    return { min, max, median, count: priceMatches.length };
   } catch {
     return null;
   }
 }
 
-// Preis deterministisch berechnen — kein KI-Spielraum
 function calculatePrice(priceData, zustandScore) {
-  if (!priceData) return null;
-  // zustandScore: 1.0 = Neu, 0.9 = Wie neu, 0.8 = Sehr gut, 0.7 = Gut, 0.6 = Befriedigend
-  const base = priceData.median;
-  const adjusted = Math.round(base * zustandScore);
-  // Auf glatte Zahl runden (5er-Schritte)
-  return Math.round(adjusted / 5) * 5;
+  if (!priceData || !Number.isFinite(zustandScore)) return null;
+  const score  = Math.min(1.0, Math.max(0.5, zustandScore));
+  const raw    = Math.round(priceData.median * score);
+  return Math.round(raw / 5) * 5;               // snap to 5 €
+}
+
+const ZUSTAND_LABELS = { 1.0: "Neu", 0.9: "Wie neu", 0.8: "Sehr gut", 0.7: "Gut", 0.6: "Befriedigend", 0.5: "Defekt" };
+function zustandLabel(score) {
+  const rounded = Math.round(score * 10) / 10;
+  return ZUSTAND_LABELS[rounded] ?? "Gut";
 }
 
 export async function POST(request) {
   try {
-    const { photos, location, extraHint } = await request.json();
-    // Kompatibilität: mindestens 1 Foto, max 6
-    const photo1 = photos[0]?.base64;
-    const photo2 = photos[1]?.base64 || photos[0]?.base64;
-    const mimeType1 = photos[0]?.mimeType || "image/jpeg";
-    const mimeType2 = photos[1]?.mimeType || mimeType1;
-    // Alle Fotos als Content-Parts für die Analyse
-    const allPhotosParts = photos.map(p => ({
-      type: "image_url",
-      image_url: { url: `data:${p.mimeType};base64,${p.base64}`, detail: "low" }
-    }));
+    const body = await request.json();
+    const { photos = [], location = "Deutschland", extraHint = "" } = body;
 
-    const hintText = extraHint
-      ? `Der Nutzer hat den Artikel korrigiert auf: "${extraHint}". Verwende diesen Namen.`
-      : "";
+    // Guard: at least one photo required
+    const validPhotos = photos.filter(p => p?.base64 && p?.mimeType);
+    if (validPhotos.length === 0) {
+      return Response.json({ success: false, error: "Kein Foto übermittelt." }, { status: 400 });
+    }
 
-    // Schritt 1: Produkt + Zustand erkennen (temperature 0 = deterministisch)
-    const quickRes = await fetch("https://api.openai.com/v1/chat/completions", {
+    // Use first photo for quick product ID, rest for full analysis
+    const primaryPhoto = validPhotos[0];
+
+    /* ── Step 1: Identify product + condition ── */
+    const idPrompt = extraHint
+      ? `Der Nutzer nennt das Produkt: "${extraHint}". Gib NUR zurück: Produktname (max 5 Wörter), Komma, Zustandszahl 0.5-1.0. Beispiel: "RØDE NT-USB Mikrofon, 0.8"`
+      : `Erkenne Marke und Modell auf dem Foto. Antworte NUR mit: Produktname (max 5 Wörter), Komma, Zustandszahl 0.5-1.0 (1.0=Neu 0.9=WieNeu 0.8=SehrGut 0.7=Gut 0.6=Befriedigend 0.5=Defekt). Beispiel: "Sony WH-1000XM4, 0.8"`;
+
+    const idRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
-        max_tokens: 80,
-        temperature: 0,
+        model: "gpt-4o-mini", max_tokens: 60, temperature: 0,
         messages: [{
           role: "user",
           content: [
-            { type: "text", text: extraHint
-              ? `Produktname für Kleinanzeigen-Suche: "${extraHint}". Gib NUR den optimalen Suchbegriff zurück (max 4 Wörter), dann ein Komma, dann eine Zahl 0.6-1.0 für den Zustand (1.0=Neu, 0.9=Wie neu, 0.8=Sehr gut, 0.7=Gut, 0.6=Befriedigend). Beispiel: "iPhone 13 Pro, 0.8"`
-              : `Erkenne das Produkt auf dem Foto. Antworte NUR mit: Produktname (max 4 Wörter), Komma, Zustandszahl 0.6-1.0 (1.0=Neu, 0.9=Wie neu, 0.8=Sehr gut, 0.7=Gut, 0.6=Befriedigend). Beispiel: "RØDE NT-USB Mikrofon, 0.8"` },
-            { type: "image_url", image_url: { url: `data:${mimeType1};base64,${photo1}`, detail: "low" } },
+            { type: "text", text: idPrompt },
+            { type: "image_url", image_url: { url: `data:${primaryPhoto.mimeType};base64,${primaryPhoto.base64}`, detail: "low" } },
           ],
         }],
       }),
     });
 
-    const quickData = await quickRes.json();
-    const quickText = quickData.choices?.[0]?.message?.content?.trim() || "";
-    const parts = quickText.split(",");
-    const detectedName = extraHint || parts[0]?.trim() || "Artikel";
-    const zustandScore = parseFloat(parts[1]?.trim()) || 0.75;
+    if (!idRes.ok) throw new Error(`OpenAI ID-Call: ${idRes.status}`);
+    const idData = await idRes.json();
+    const idText = idData.choices?.[0]?.message?.content?.trim() ?? "";
 
-    // Zustand in Text umwandeln
-    const zustandText = zustandScore >= 1.0 ? "Neu" : zustandScore >= 0.9 ? "Wie neu" : zustandScore >= 0.8 ? "Sehr gut" : zustandScore >= 0.7 ? "Gut" : "Befriedigend";
+    const parts        = idText.split(",");
+    const detectedName = extraHint || (parts[0]?.trim() ?? "Artikel");
+    const rawScore     = parseFloat(parts[1]?.trim() ?? "0.75");
+    const zustandScore = Number.isFinite(rawScore) ? Math.min(1.0, Math.max(0.5, rawScore)) : 0.75;
+    const zustand      = zustandLabel(zustandScore);
 
-    // Schritt 2: Echte Marktpreise scrapen
-    const priceData = await scrapeKleinanzeigenPrices(detectedName);
-
-    // Schritt 3: Preis deterministisch berechnen
+    /* ── Step 2: Scrape real market prices ── */
+    const priceData  = await scrapeKleinanzeigenPrices(detectedName);
     const fixedPrice = calculatePrice(priceData, zustandScore);
 
-    const priceInfo = priceData
-      ? `FESTGELEGTER PREIS: ${fixedPrice} € (berechnet aus Median ${priceData.median} € × Zustandsfaktor ${zustandScore}). Trage exakt diesen Wert als schaetzPreis ein — keine Abweichung.`
-      : `Kein Marktpreis verfügbar. Schätze konservativ für "${detectedName}" im Zustand "${zustandText}".`;
+    const priceInstruction = priceData && fixedPrice
+      ? `FESTGELEGTER PREIS: ${fixedPrice} €  (Marktmedian ${priceData.median} € × Zustandsfaktor ${zustandScore.toFixed(1)}). Trage exakt ${fixedPrice} in "schaetzPreis" ein.`
+      : `Schätze konservativ. Lieber 15% unter Neupreis als zu hoch.`;
 
-    const marktdatenText = priceData
-      ? `${priceData.count} Anzeigen ausgewertet: ${priceData.min}–${priceData.max} €, Median ${priceData.median} €, empfohlener Preis ${fixedPrice} €`
-      : "Keine Marktdaten verfügbar";
+    const marktdatenStr = priceData
+      ? `${priceData.count} Anzeigen: ${priceData.min}–${priceData.max} €, Median ${priceData.median} €, empfohlen ${fixedPrice} €`
+      : "Keine Marktdaten verfügbar – Schätzung";
 
-    // Schritt 4: Nur Text generieren, Preis ist vorgegeben
-    const prompt = `Du bist ein erfahrener Verkäufer auf Kleinanzeigen.de.
+    const preisRange = priceData ? `${priceData.min}–${priceData.max}` : "?–?";
+    const preisStrategie = priceData && fixedPrice
+      ? `Marktmedian ${priceData.median} € × ${zustandScore.toFixed(1)} (${zustand}) = ${fixedPrice} €`
+      : "Schätzung ohne Marktdaten";
 
-Analysiere diese Produktfotos. ${hintText}
+    /* ── Step 3: Generate full listing text ── */
+    const prompt = `Du bist ein erfahrener Kleinanzeigen-Verkäufer in Deutschland.
 
-Produkt: "${detectedName}", Zustand: "${zustandText}"
-${priceInfo}
+Produkt: "${detectedName}", Zustand: "${zustand}", Standort: ${location}
+${priceInstruction}
 
-Schreibe einen professionellen Anzeigentext. Der Preis ist bereits festgelegt — erfinde keinen eigenen.
+Schreibe eine professionelle, ehrliche Anzeige. Erfinde keinen anderen Preis.
 
-Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Backticks):
+Antworte NUR mit validem JSON (kein Markdown, keine Backticks, kein Text außerhalb):
 {
-  "produktName": "Exakter Produktname mit Marke und Modell",
-  "kategorie": "Kleinanzeigen Kategorie",
-  "zustand": "${zustandText}",
-  "zustandsBeschreibung": "1-2 Sätze über sichtbaren Zustand",
-  "schaetzPreis": ${fixedPrice || 0},
-  "preisRange": "${priceData ? `${priceData.min}–${priceData.max}` : '?'}",
-  "preisStrategie": "Marktmedian ${priceData?.median || '?'} € × Zustandsfaktor ${zustandScore} = ${fixedPrice || '?'} €",
-  "marktdaten": "${marktdatenText}",
-  "titel": "Anzeigentitel max 60 Zeichen",
-  "beschreibung": "Verkaufstext 150-250 Wörter. Mit Abholung/Versand-Hinweis enden.",
-  "tags": ["tag1", "tag2", "tag3"],
+  "produktName": "Vollständiger Produktname mit Marke",
+  "kategorie": "Hauptkategorie",
+  "zustand": "${zustand}",
+  "zustandsBeschreibung": "1-2 Sätze zum Zustand laut Fotos",
+  "schaetzPreis": ${fixedPrice ?? 0},
+  "preisRange": "${preisRange}",
+  "preisStrategie": "${preisStrategie.replace(/"/g, "'")}",
+  "marktdaten": "${marktdatenStr.replace(/"/g, "'")}",
+  "titel": "max 60 Zeichen, prägnant, keyword-reich",
+  "beschreibung": "150-250 Wörter, professionell, mit Abholung/Versand am Ende",
+  "tags": ["keyword1", "keyword2", "keyword3"],
   "besonderheiten": ["Feature 1", "Feature 2"],
   "versandMoeglich": true,
-  "empfKategoriePfad": "z.B. Elektronik > Audio > Mikrofon"
+  "empfKategoriePfad": "Oberkategorie > Kategorie > Unterkategorie"
 }`;
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    const allPhotosParts = validPhotos.map(p => ({
+      type: "image_url",
+      image_url: { url: `data:${p.mimeType};base64,${p.base64}`, detail: "low" },
+    }));
+
+    const analysisRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
-        max_tokens: 1500,
-        temperature: 0,
+        model: "gpt-4o-mini", max_tokens: 1500, temperature: 0,
         messages: [{
           role: "user",
-          content: [
-            { type: "text", text: prompt },
-            ...allPhotosParts,
-          ],
+          content: [{ type: "text", text: prompt }, ...allPhotosParts],
         }],
       }),
     });
 
-    if (!res.ok) throw new Error(await res.text());
+    if (!analysisRes.ok) throw new Error(`OpenAI Analysis-Call: ${analysisRes.status}`);
 
-    const data = await res.json();
-    const raw = data.choices?.[0]?.message?.content || "";
+    const analysisData = await analysisRes.json();
+    const raw   = analysisData.choices?.[0]?.message?.content ?? "";
     const clean = raw.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(clean);
 
-    // Preis nochmals sichern — KI darf ihn nicht eigenmächtig ändern
+    let parsed;
+    try {
+      parsed = JSON.parse(clean);
+    } catch {
+      throw new Error("KI-Antwort war kein gültiges JSON. Bitte erneut versuchen.");
+    }
+
+    // Enforce deterministic price — KI darf ihn nicht überschreiben
     if (fixedPrice) parsed.schaetzPreis = fixedPrice;
+    parsed.preisStrategie = preisStrategie;
+    parsed.marktdaten     = marktdatenStr;
 
     return Response.json({ success: true, data: parsed });
+
   } catch (error) {
-    console.error("Error:", error);
+    console.error("analyze error:", error);
     return Response.json({ success: false, error: error.message }, { status: 500 });
   }
 }
