@@ -295,6 +295,8 @@ export default function Home() {
   const [publishSnap, setPublishSnap] = useState(null);
   const [publishIdx, setPublishIdx]   = useState(null);
   const [copied, setCopied]       = useState(false);
+  const [activeStyle, setActiveStyle] = useState(null);
+  const [styleLoading, setStyleLoading] = useState(false);
 
   // ── Persistenz: in localStorage speichern bei Änderung ──
   useEffect(() => {
@@ -416,6 +418,43 @@ export default function Home() {
   const copyText = text => {
     navigator.clipboard.writeText(text).catch(() => {});
     setCopied(true); setTimeout(() => setCopied(false), 2000);
+  };
+
+  const STYLES = [
+    { key: "sachlich",    label: "Sachlich",    emoji: "📋", desc: "Fakten, nüchtern" },
+    { key: "emotional",   label: "Emotional",   emoji: "✨", desc: "Warm, einladend" },
+    { key: "knapp",       label: "Knapp",       emoji: "⚡", desc: "60-80 Wörter" },
+    { key: "ausfuehrlich",label: "Ausführlich", emoji: "📝", desc: "250-350 Wörter" },
+    { key: "human",       label: "Menschlich",  emoji: "🧑", desc: "Kein KI-Stil, keine Emojis" },
+  ];
+
+  const generateStyle = async (styleKey) => {
+    if (!listing || !analysis) return;
+    setStyleLoading(true);
+    setActiveStyle(styleKey);
+    try {
+      const res = await fetch("/api/generate-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          produktName: analysis.produktName,
+          zustand: listing.zustand,
+          preis: listing.preis,
+          kategorie: listing.kategorie,
+          ort: listing.ort,
+          versand: listing.versand,
+          styleKey,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setListing(prev => ({ ...prev, beschreibung: json.text }));
+      setTab("preview");
+    } catch (e) {
+      setError("Stil konnte nicht generiert werden: " + e.message);
+    } finally {
+      setStyleLoading(false);
+    }
   };
 
   const resetAll = () => {
@@ -611,6 +650,49 @@ export default function Home() {
                   onBlur={e => e.target.style.borderColor = "var(--border)"}
                 />
                 <Btn variant={correction.trim() ? "primary" : "ghost"} disabled={!correction.trim()} onClick={() => doAnalyze(correction.trim())}>↺ Neu</Btn>
+              </div>
+            </Card>
+
+            {/* Stil-Selector */}
+            <Card style={{ padding: 16, marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.12em" }}>
+                  Beschreibungsstil
+                </div>
+                {activeStyle && !styleLoading && (
+                  <Badge color="green">✓ {STYLES.find(s => s.key === activeStyle)?.label} aktiv</Badge>
+                )}
+                {styleLoading && (
+                  <Badge color="orange">⏳ Wird generiert…</Badge>
+                )}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
+                {STYLES.map(s => (
+                  <button
+                    key={s.key}
+                    onClick={() => !styleLoading && generateStyle(s.key)}
+                    disabled={styleLoading}
+                    style={{
+                      padding: "10px 6px",
+                      borderRadius: "var(--radius-xs)",
+                      border: activeStyle === s.key ? "2px solid var(--orange)" : "1.5px solid var(--border)",
+                      background: activeStyle === s.key ? "var(--orange-bg)" : styleLoading && activeStyle === s.key ? "var(--orange-bg)" : "var(--bg3)",
+                      color: activeStyle === s.key ? "var(--orange-dark)" : "var(--text2)",
+                      cursor: styleLoading ? "wait" : "pointer",
+                      textAlign: "center",
+                      transition: "all 0.18s ease",
+                      opacity: styleLoading && activeStyle !== s.key ? 0.5 : 1,
+                    }}
+                    onMouseEnter={e => { if (!styleLoading && activeStyle !== s.key) e.currentTarget.style.borderColor = "var(--orange-light)"; }}
+                    onMouseLeave={e => { if (activeStyle !== s.key) e.currentTarget.style.borderColor = "var(--border)"; }}
+                  >
+                    <div style={{ fontSize: 18, marginBottom: 4, filter: styleLoading && activeStyle === s.key ? "none" : "none" }}>
+                      {styleLoading && activeStyle === s.key ? "⏳" : s.emoji}
+                    </div>
+                    <div style={{ fontSize: 10, fontWeight: 700, lineHeight: 1.2 }}>{s.label}</div>
+                    <div style={{ fontSize: 9, color: "var(--text3)", marginTop: 2, lineHeight: 1.3 }}>{s.desc}</div>
+                  </button>
+                ))}
               </div>
             </Card>
 
