@@ -197,10 +197,14 @@ export default function Home() {
 
   /* ── analyze ── */
   const doAnalyze = async (extraHint = "") => {
+    const active = photos.filter(p => p !== null);
+    if (active.length === 0) {
+      setError("Für eine Neu-Analyse bitte neue Fotos hochladen.");
+      return;
+    }
     setStep("loading");
     setError(null);
     try {
-      const active = photos.filter(p => p !== null);
       const compressed = await Promise.all(active.map(p => compressImage(p.file)));
       const res = await fetch("/api/analyze", {
         method: "POST",
@@ -224,8 +228,24 @@ export default function Home() {
   };
 
   /* ── save to queue ── */
-  const saveToQueue = () => {
-    const previews = photos.filter(p => p !== null).map(p => p.preview);
+  const saveToQueue = async () => {
+    // Convert blob URLs to data URLs BEFORE revoking them
+    const photoEntries = photos.filter(p => p !== null);
+    const dataUrlPreviews = await Promise.all(photoEntries.map(p => new Promise(res => {
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX = 200; // small thumbnail
+        let w = img.width, h = img.height;
+        if (w > h) { h = Math.round(h * MAX / w); w = MAX; } else { w = Math.round(w * MAX / h); h = MAX; }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        res(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.onerror = () => res(null);
+      img.src = p.preview;
+    })));
+    const previews = dataUrlPreviews.filter(Boolean);
     const item = { analysis, listing: { ...listing }, previews, id: Date.now() };
     if (editingIdx !== null) {
       setQueue(prev => { const q = [...prev]; q[editingIdx] = item; return q; });
@@ -244,7 +264,10 @@ export default function Home() {
     setAnalysis(item.analysis);
     setListing({ ...item.listing });
     setEditingIdx(idx);
-    setTab("preview");
+    // Clear photos - editing saved item means no files available
+    clearPhotos();
+    setCorrection("");
+    setTab("edit"); // go straight to edit tab since preview is always available
     setStep("result");
   };
 
@@ -261,10 +284,14 @@ export default function Home() {
   const listingText = makeListingText(listing, analysis);
 
   /* ── publish single ── */
+  const [publishSnapshot, setPublishSnapshot] = useState(null); // snapshot at publish time
+
   const publishSingle = (idx) => {
     const item = queue[idx];
     const text = makeListingText(item.listing, item.analysis);
     navigator.clipboard.writeText(text).catch(() => {});
+    // Snapshot the item so queue mutations don't corrupt the publish screen
+    setPublishSnapshot({ listing: item.listing, analysis: item.analysis, text });
     setPublishIdx(idx);
     setStep("publish");
     setTimeout(() => linkRef.current?.click(), 400);
@@ -273,8 +300,9 @@ export default function Home() {
   /* ── publish current ── */
   const publishCurrent = () => {
     navigator.clipboard.writeText(listingText).catch(() => {});
-    setStep("publish");
+    setPublishSnapshot({ listing: { ...listing }, analysis: { ...analysis }, text: listingText });
     setPublishIdx(null);
+    setStep("publish");
     setTimeout(() => linkRef.current?.click(), 400);
   };
 
@@ -290,13 +318,11 @@ export default function Home() {
     clearPhotos();
     setAnalysis(null); setListing(null); setError(null);
     setCorrection(""); setStep("upload"); setTab("preview");
-    setEditingIdx(null); setPublishIdx(null);
+    setEditingIdx(null); setPublishIdx(null); setPublishSnapshot(null);
   };
 
-  const currentPublishText = publishIdx !== null
-    ? makeListingText(queue[publishIdx]?.listing, queue[publishIdx]?.analysis)
-    : listingText;
-  const currentPublishListing = publishIdx !== null ? queue[publishIdx]?.listing : listing;
+  const currentPublishText = publishSnapshot?.text ?? listingText;
+  const currentPublishListing = publishSnapshot?.listing ?? listing;
 
   /* ─── RENDER ─── */
   return (
@@ -382,8 +408,9 @@ export default function Home() {
 
             {/* Editing-Banner */}
             {editingIdx !== null && (
-              <div style={{ background: "rgba(201,168,76,0.1)", border: "1px solid var(--gold-border)", borderRadius: "var(--radius-sm)", padding: "10px 14px", marginBottom: 14, fontSize: 11, color: "var(--gold)", display: "flex", alignItems: "center", gap: 8 }}>
-                ✎ Du bearbeitest Artikel #{editingIdx + 1} aus der Warteschlange
+              <div style={{ background: "rgba(201,168,76,0.1)", border: "1px solid var(--gold-border)", borderRadius: "var(--radius-sm)", padding: "10px 14px", marginBottom: 14, fontSize: 11, color: "var(--gold)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                <span>✎ Artikel #{editingIdx + 1} bearbeiten · Felder direkt editieren</span>
+                <span style={{ fontSize: 10, color: "var(--text3)" }}>Für Neu-Analyse: erst speichern, dann neu hochladen</span>
               </div>
             )}
 
@@ -512,7 +539,7 @@ export default function Home() {
                     Alle Texte nacheinander auf Kleinanzeigen einfügen — öffnet die Seite für jeden Artikel separat.
                   </div>
                   <button
-                    onClick={() => publishSingle(0)}
+                    onClick={() => { if (queue.length > 0) publishSingle(0); }}
                     style={{ width: "100%", padding: "14px", borderRadius: "var(--radius-sm)", border: "none", background: "linear-gradient(135deg, var(--gold-bright) 0%, var(--gold) 50%, #a8862a 100%)", color: "#0c0c0e", fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", boxShadow: "0 4px 20px rgba(201,168,76,0.3)" }}
                   >
                     🚀 Mit Artikel 1 starten
@@ -554,11 +581,22 @@ export default function Home() {
 
             {/* Weitere Artikel in Queue */}
             {queue.length > 0 && (
-              <div style={{ background: "var(--bg3)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "var(--radius-sm)", padding: "14px", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ fontSize: 12, color: "var(--text2)" }}>
+              <div style={{ background: "var(--bg3)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "var(--radius-sm)", padding: "14px", marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: "var(--text3)", marginBottom: 10 }}>
                   Noch <strong style={{ color: "var(--gold)" }}>{queue.length}</strong> Artikel in der Warteschlange
                 </div>
-                <button onClick={() => setStep("queue")} style={{ padding: "8px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--gold-border)", background: "var(--gold-dim)", color: "var(--gold)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Zur Warteschlange →</button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {publishIdx !== null && queue.length > 1 && (
+                    <button
+                      onClick={() => {
+                        const nextIdx = (publishIdx + 1) % queue.length;
+                        publishSingle(nextIdx);
+                      }}
+                      style={{ flex: 1, padding: "9px", borderRadius: "var(--radius-sm)", border: "none", background: "var(--gold)", color: "#0c0c0e", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                    >→ Nächster Artikel</button>
+                  )}
+                  <button onClick={() => setStep("queue")} style={{ flex: 1, padding: "9px", borderRadius: "var(--radius-sm)", border: "1px solid var(--gold-border)", background: "var(--gold-dim)", color: "var(--gold)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Warteschlange</button>
+                </div>
               </div>
             )}
 
