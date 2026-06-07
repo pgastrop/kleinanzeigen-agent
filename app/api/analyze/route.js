@@ -1,9 +1,7 @@
 export const maxDuration = 60;
 
-// Scrapt echte Preise von Kleinanzeigen-Suchergebnissen
-async function scrapeKleinanzeigenPrices(produktName, location) {
+async function scrapeKleinanzeigenPrices(produktName) {
   try {
-    const city = location.split(",")[0].trim();
     const query = encodeURIComponent(produktName);
     const url = `https://www.kleinanzeigen.de/seite:1/s-${query}/k0`;
 
@@ -19,28 +17,38 @@ async function scrapeKleinanzeigenPrices(produktName, location) {
     if (!res.ok) return null;
     const html = await res.text();
 
-    // Preise aus HTML extrahieren: Muster "123 €" oder "1.234 €"
     const priceMatches = [...html.matchAll(/(\d{1,2}\.?\d{3}|\d{1,4})\s*€/g)]
       .map(m => parseInt(m[1].replace(".", "")))
       .filter(p => p >= 1 && p <= 50000);
 
-    if (priceMatches.length < 2) return null;
+    if (priceMatches.length < 3) return null;
 
     priceMatches.sort((a, b) => a - b);
 
-    // Ausreißer entfernen (unterstes und oberstes 20%)
-    const trim = Math.floor(priceMatches.length * 0.2);
-    const trimmed = priceMatches.slice(trim, priceMatches.length - trim);
+    // Ausreißer entfernen (unterstes 10%, oberstes 20%)
+    const trimLow = Math.floor(priceMatches.length * 0.1);
+    const trimHigh = Math.floor(priceMatches.length * 0.2);
+    const trimmed = priceMatches.slice(trimLow, priceMatches.length - trimHigh);
 
     const min = trimmed[0];
     const max = trimmed[trimmed.length - 1];
     const median = trimmed[Math.floor(trimmed.length / 2)];
     const avg = Math.round(trimmed.reduce((a, b) => a + b, 0) / trimmed.length);
 
-    return { min, max, median, avg, count: priceMatches.length, city };
+    return { min, max, median, avg, count: priceMatches.length };
   } catch {
     return null;
   }
+}
+
+// Preis deterministisch berechnen — kein KI-Spielraum
+function calculatePrice(priceData, zustandScore) {
+  if (!priceData) return null;
+  // zustandScore: 1.0 = Neu, 0.9 = Wie neu, 0.8 = Sehr gut, 0.7 = Gut, 0.6 = Befriedigend
+  const base = priceData.median;
+  const adjusted = Math.round(base * zustandScore);
+  // Auf glatte Zahl runden (5er-Schritte)
+  return Math.round(adjusted / 5) * 5;
 }
 
 export async function POST(request) {
@@ -49,68 +57,73 @@ export async function POST(request) {
       await request.json();
 
     const hintText = extraHint
-      ? `\n\nWICHTIG: Der Nutzer hat den Artikel korrigiert auf: "${extraHint}". Verwende diesen Namen als Basis.`
+      ? `Der Nutzer hat den Artikel korrigiert auf: "${extraHint}". Verwende diesen Namen.`
       : "";
 
-    // Schritt 1: Produkt erkennen
+    // Schritt 1: Produkt + Zustand erkennen (temperature 0 = deterministisch)
     const quickRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        max_tokens: 60,
+        max_tokens: 80,
+        temperature: 0,
         messages: [{
           role: "user",
           content: [
             { type: "text", text: extraHint
-              ? `Produktname für Suchanfrage: "${extraHint}". Gib nur den optimalen Suchbegriff zurück, max 5 Wörter.`
-              : "Erkenne Marke und Modell dieses Produkts. Antworte NUR mit dem Produktnamen, max 5 Wörter, kein anderer Text." },
+              ? `Produktname für Kleinanzeigen-Suche: "${extraHint}". Gib NUR den optimalen Suchbegriff zurück (max 4 Wörter), dann ein Komma, dann eine Zahl 0.6-1.0 für den Zustand (1.0=Neu, 0.9=Wie neu, 0.8=Sehr gut, 0.7=Gut, 0.6=Befriedigend). Beispiel: "iPhone 13 Pro, 0.8"`
+              : `Erkenne das Produkt auf dem Foto. Antworte NUR mit: Produktname (max 4 Wörter), Komma, Zustandszahl 0.6-1.0 (1.0=Neu, 0.9=Wie neu, 0.8=Sehr gut, 0.7=Gut, 0.6=Befriedigend). Beispiel: "RØDE NT-USB Mikrofon, 0.8"` },
             { type: "image_url", image_url: { url: `data:${mimeType1};base64,${photo1}`, detail: "low" } },
           ],
         }],
       }),
     });
+
     const quickData = await quickRes.json();
-    const detectedName = extraHint || quickData.choices?.[0]?.message?.content?.trim() || "Artikel";
+    const quickText = quickData.choices?.[0]?.message?.content?.trim() || "";
+    const parts = quickText.split(",");
+    const detectedName = extraHint || parts[0]?.trim() || "Artikel";
+    const zustandScore = parseFloat(parts[1]?.trim()) || 0.75;
 
-    // Schritt 2: Echte Marktpreise von Kleinanzeigen scrapen
-    const priceData = await scrapeKleinanzeigenPrices(detectedName, location);
+    // Zustand in Text umwandeln
+    const zustandText = zustandScore >= 1.0 ? "Neu" : zustandScore >= 0.9 ? "Wie neu" : zustandScore >= 0.8 ? "Sehr gut" : zustandScore >= 0.7 ? "Gut" : "Befriedigend";
 
-    const marketContext = priceData
-      ? `\n\nECHTE MARKTPREISE von Kleinanzeigen.de für "${detectedName}" (${priceData.count} Anzeigen ausgewertet):
-- Günstigster Preis: ${priceData.min} €
-- Teuerster Preis: ${priceData.max} €  
-- Median: ${priceData.median} €
-- Durchschnitt: ${priceData.avg} €
+    // Schritt 2: Echte Marktpreise scrapen
+    const priceData = await scrapeKleinanzeigenPrices(detectedName);
 
-PREISEMPFEHLUNG: Setze den Preis auf ${priceData.median} € (Median der aktuellen Angebote). 
-Berücksichtige den Zustand des Artikels: bei sehr gutem Zustand eher Richtung ${Math.round(priceData.median * 1.1)} €, bei Gebrauchsspuren eher ${Math.round(priceData.median * 0.85)} €.
-Sei realistisch — zu hohe Preise führen zu keinem Verkauf.`
-      : `\n\nKeine Marktdaten verfügbar. Schätze konservativ basierend auf deutschem Gebrauchtmarkt. Lieber 10-20% unter Neupreis als zu hoch.`;
+    // Schritt 3: Preis deterministisch berechnen
+    const fixedPrice = calculatePrice(priceData, zustandScore);
 
-    // Schritt 3: Vollständige Analyse mit realen Preisdaten
-    const prompt = `Du bist ein erfahrener Verkäufer auf Kleinanzeigen.de mit jahrelanger Erfahrung.
+    const priceInfo = priceData
+      ? `FESTGELEGTER PREIS: ${fixedPrice} € (berechnet aus Median ${priceData.median} € × Zustandsfaktor ${zustandScore}). Trage exakt diesen Wert als schaetzPreis ein — keine Abweichung.`
+      : `Kein Marktpreis verfügbar. Schätze konservativ für "${detectedName}" im Zustand "${zustandText}".`;
 
-Analysiere diese Produktfotos für einen Verkauf in ${location}.${hintText}${marketContext}
+    const marktdatenText = priceData
+      ? `${priceData.count} Anzeigen ausgewertet: ${priceData.min}–${priceData.max} €, Median ${priceData.median} €, empfohlener Preis ${fixedPrice} €`
+      : "Keine Marktdaten verfügbar";
 
-WICHTIGE PREISREGELN:
-- Nutze die echten Marktdaten als Hauptreferenz
-- Privatverkäufer müssen 10-20% günstiger als Händler sein  
-- Bei unbekanntem Zustand: konservativer Preis
-- Kein VB (Verhandlungsbasis) einplanen — Preis ist bereits fair kalkuliert
-- NIEMALS den Neupreis als Basis nehmen ohne starken Abschlag
+    // Schritt 4: Nur Text generieren, Preis ist vorgegeben
+    const prompt = `Du bist ein erfahrener Verkäufer auf Kleinanzeigen.de.
+
+Analysiere diese Produktfotos. ${hintText}
+
+Produkt: "${detectedName}", Zustand: "${zustandText}"
+${priceInfo}
+
+Schreibe einen professionellen Anzeigentext. Der Preis ist bereits festgelegt — erfinde keinen eigenen.
 
 Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Backticks):
 {
   "produktName": "Exakter Produktname mit Marke und Modell",
   "kategorie": "Kleinanzeigen Kategorie",
-  "zustand": "Sehr gut",
-  "zustandsBeschreibung": "1-2 Sätze über sichtbaren Zustand aus den Fotos",
-  "schaetzPreis": 45,
-  "preisRange": "35-55",
-  "preisStrategie": "Erklärung: Median laut Marktdaten X €, Zustand Y, daher Z €",
-  "marktdaten": ${priceData ? `"${priceData.count} Anzeigen: ${priceData.min}–${priceData.max} €, Median ${priceData.median} €"` : '"Keine Marktdaten verfügbar"'},
-  "titel": "Anzeigentitel max 60 Zeichen, prägnant",
+  "zustand": "${zustandText}",
+  "zustandsBeschreibung": "1-2 Sätze über sichtbaren Zustand",
+  "schaetzPreis": ${fixedPrice || 0},
+  "preisRange": "${priceData ? `${priceData.min}–${priceData.max}` : '?'}",
+  "preisStrategie": "Marktmedian ${priceData?.median || '?'} € × Zustandsfaktor ${zustandScore} = ${fixedPrice || '?'} €",
+  "marktdaten": "${marktdatenText}",
+  "titel": "Anzeigentitel max 60 Zeichen",
   "beschreibung": "Verkaufstext 150-250 Wörter. Mit Abholung/Versand-Hinweis enden.",
   "tags": ["tag1", "tag2", "tag3"],
   "besonderheiten": ["Feature 1", "Feature 2"],
@@ -124,6 +137,7 @@ Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Backticks):
       body: JSON.stringify({
         model: "gpt-4o-mini",
         max_tokens: 1500,
+        temperature: 0,
         messages: [{
           role: "user",
           content: [
@@ -141,6 +155,9 @@ Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Backticks):
     const raw = data.choices?.[0]?.message?.content || "";
     const clean = raw.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(clean);
+
+    // Preis nochmals sichern — KI darf ihn nicht eigenmächtig ändern
+    if (fixedPrice) parsed.schaetzPreis = fixedPrice;
 
     return Response.json({ success: true, data: parsed });
   } catch (error) {
