@@ -333,7 +333,7 @@ ${listing.beschreibung}
 
             {/* Schnellzugriff-Buttons */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-              <a href="https://www.kleinanzeigen.de/anzeige-aufgeben" target="_blank" rel="noreferrer" style={{ display: "block", padding: "14px", borderRadius: 12, background: `linear-gradient(135deg, ${GOLD}, #b8962f)`, color: "#0a0a0a", fontSize: 13, fontWeight: "bold", textAlign: "center", textDecoration: "none", letterSpacing: "0.05em" }}>
+              <a href="https://m.kleinanzeigen.de/anzeige-aufgeben" target="_blank" rel="noreferrer" style={{ display: "block", padding: "14px", borderRadius: 12, background: `linear-gradient(135deg, ${GOLD}, #b8962f)`, color: "#0a0a0a", fontSize: 13, fontWeight: "bold", textAlign: "center", textDecoration: "none", letterSpacing: "0.05em" }}>
                 → Kleinanzeigen öffnen
               </a>
               <button onClick={() => { navigator.clipboard.writeText(listingText).catch(()=>{}); }} style={{ padding: "14px", borderRadius: 12, border: `1px solid ${GOLD_BORDER}`, background: GOLD_DIM, color: GOLD, fontSize: 13, fontWeight: "bold", cursor: "pointer", letterSpacing: "0.05em" }}>
@@ -353,7 +353,7 @@ ${listing.beschreibung}
           </div>
         )}
 
-        <a ref={linkRef} href="https://www.kleinanzeigen.de/anzeige-aufgeben" target="_blank" rel="noreferrer" style={{ display: "none" }}>kaz</a>
+        <a ref={linkRef} href="https://m.kleinanzeigen.de/anzeige-aufgeben" target="_blank" rel="noreferrer" style={{ display: "none" }}>kaz</a>
 
         <footer style={{ marginTop: 50, textAlign: "center", fontSize: 10, color: "rgba(255,255,255,0.15)", lineHeight: 2 }}>
           Preise basieren auf Marktrecherche · Kein Anspruch auf Genauigkeit
