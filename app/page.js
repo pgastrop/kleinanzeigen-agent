@@ -196,7 +196,7 @@ function QueueCard({ item, index, onEdit, onRemove, onPublish }) {
           </div>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ fontSize: 18, fontWeight: 800, color: "var(--orange-dark)", fontFamily: "'Nunito', sans-serif" }}>{item.listing.preis} €</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: "var(--orange-dark)", fontFamily: "'Nunito', sans-serif" }}>{Number(item.listing.preis).toLocaleString("de-DE", {minimumFractionDigits: 2, maximumFractionDigits: 2})} €</div>
           <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 1 }}>{expanded ? "▲ einklappen" : "▼ ausklappen"}</div>
         </div>
       </div>
@@ -297,6 +297,7 @@ export default function Home() {
   const [copied, setCopied]       = useState(false);
   const [activeStyle, setActiveStyle] = useState(null);
   const [styleLoading, setStyleLoading] = useState(false);
+  const [pendingStyle, setPendingStyle] = useState(null); // Stil gewählt aber noch nicht generiert
   const [priceType, setPriceType] = useState("fest");    // fest | vb
   const [deliveryType, setDeliveryType] = useState("beide"); // abholung | versand | beide
 
@@ -376,9 +377,17 @@ export default function Home() {
   };
 
   /* listing text */
+  const formatPreis = (preis) => {
+    const n = Number(preis);
+    if (!Number.isFinite(n)) return "0,00";
+    // Immer 2 Dezimalstellen, deutsche Formatierung
+    return n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
   const makePriceLabel = (preis, pt) => {
-    if (pt === "vb") return `${preis} € VB`;
-    return `${preis} € (Festpreis)`;
+    const p = formatPreis(preis);
+    if (pt === "vb") return `${p} € VB`;
+    return `${p} € (Festpreis)`;
   };
 
   const makeDeliveryLabel = (dt) => {
@@ -464,6 +473,7 @@ export default function Home() {
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
       setListing(prev => ({ ...prev, beschreibung: json.text }));
+      setPendingStyle(null); // Text ist jetzt aktuell
       setTab("preview");
     } catch (e) {
       setError("Stil konnte nicht generiert werden: " + e.message);
@@ -637,7 +647,7 @@ export default function Home() {
                     </div>
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 42, fontWeight: 900, color: "var(--orange-dark)", lineHeight: 1 }}>{listing.preis}</div>
+                    <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: 42, fontWeight: 900, color: "var(--orange-dark)", lineHeight: 1 }}>{formatPreis(listing.preis)}</div>
                     <div style={{ fontSize: 16, fontWeight: 700, color: "var(--orange)", marginTop: -2 }}>Euro</div>
                     <div style={{ fontSize: 10, color: "var(--text3)", marginTop: 4 }}>Markt: {analysis.preisRange} €</div>
                   </div>
@@ -731,11 +741,11 @@ export default function Home() {
                 <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.12em" }}>
                   Beschreibungsstil
                 </div>
-                {activeStyle && !styleLoading && (
-                  <Badge color="green">✓ {STYLES.find(s => s.key === activeStyle)?.label} aktiv</Badge>
-                )}
                 {styleLoading && (
-                  <Badge color="orange">⏳ Wird generiert…</Badge>
+                  <Badge color="orange">⏳ Text wird neu geschrieben…</Badge>
+                )}
+                {activeStyle && !styleLoading && (
+                  <Badge color="green">✓ {STYLES.find(s => s.key === activeStyle)?.label} — Text aktualisiert</Badge>
                 )}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
@@ -813,15 +823,23 @@ export default function Home() {
               </Card>
             )}
 
+            {/* Style loading warning */}
+            {styleLoading && (
+              <div style={{ background: "#fffbeb", border: "1.5px solid #f59e0b", borderRadius: "var(--radius-sm)", padding: "12px 16px", marginBottom: 14, fontSize: 13, color: "#92400e", display: "flex", alignItems: "center", gap: 8, animation: "fadeIn 0.2s ease" }}>
+                <span style={{ animation: "spin 0.8s linear infinite", display: "inline-block" }}>⏳</span>
+                Stil wird generiert — bitte warten bevor du veröffentlichst…
+              </div>
+            )}
+
             {/* Actions */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-              <Btn variant="secondary" size="lg" onClick={saveToQueue} style={{ flexDirection: "column", gap: 2, width: "100%", padding: "14px" }}>
+              <Btn variant="secondary" size="lg" onClick={saveToQueue} disabled={styleLoading} style={{ flexDirection: "column", gap: 2, width: "100%", padding: "14px" }}>
                 <span>💾 Speichern</span>
                 <span style={{ fontSize: 10, fontWeight: 500, color: "var(--text3)" }}>+ nächster Artikel</span>
               </Btn>
-              <Btn variant="primary" size="lg" onClick={publishCurrent} style={{ flexDirection: "column", gap: 2, width: "100%", padding: "14px" }}>
-                <span>🚀 Veröffentlichen</span>
-                <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.8 }}>Kleinanzeigen öffnen</span>
+              <Btn variant="primary" size="lg" onClick={publishCurrent} disabled={styleLoading} style={{ flexDirection: "column", gap: 2, width: "100%", padding: "14px" }}>
+                <span>{styleLoading ? "⏳ Bitte warten…" : "🚀 Veröffentlichen"}</span>
+                <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.8 }}>{styleLoading ? "Stil wird generiert" : "Kleinanzeigen öffnen"}</span>
               </Btn>
             </div>
             <Btn variant="ghost" size="sm" onClick={() => setStep("upload")} style={{ width: "100%" }}>← Fotos neu hochladen</Btn>
@@ -881,7 +899,7 @@ export default function Home() {
                 ["Kategorie wählen", publishSnap.listing.kategorie, "2"],
                 ['„Anzeige aufgeben" klicken', "", "3"],
                 ["Titel & Text einfügen", "Strg+V oder Einfügen", "4"],
-                [`Preis: ${publishSnap.listing.preis} € + Fotos hochladen`, "", "5"],
+                [`Preis: ${Number(publishSnap.listing.preis).toLocaleString("de-DE", {minimumFractionDigits: 2, maximumFractionDigits: 2})} € + Fotos hochladen`, "", "5"],
               ].map(([title, sub, n], i) => (
                 <div key={i} style={{ display: "flex", gap: 14, padding: "13px 20px", borderBottom: i < 4 ? "1px solid var(--border2)" : "none", alignItems: "center" }}>
                   <div style={{ width: 26, height: 26, borderRadius: "50%", background: "var(--orange)", color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{n}</div>
