@@ -30,6 +30,7 @@ function compressAndBase64(file) {
   });
 }
 
+// Einzelner Slot — tippen öffnet nur diesen Slot (1 Bild)
 function PhotoSlot({ index, photo, onFile, onRemove }) {
   const inputRef = useRef();
   const [drag, setDrag] = useState(false);
@@ -52,11 +53,37 @@ function PhotoSlot({ index, photo, onFile, onRemove }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 10 }}>
           <div style={{ fontSize: 38, opacity: 0.25 }}>📷</div>
-          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", textAlign: "center", lineHeight: 1.6 }}>Foto {index + 1}<br /><span style={{ fontSize: 10, opacity: 0.6 }}>{index === 0 ? "beide gleichzeitig wählbar" : "tippen · ziehen"}</span></div>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", textAlign: "center", lineHeight: 1.6 }}>Foto {index + 1}<br /><span style={{ fontSize: 10, opacity: 0.6 }}>tippen · ziehen</span></div>
         </div>
       )}
-      <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => { const files = Array.from(e.target.files); files.slice(0, 2).forEach((file, i) => { if (file.type.startsWith("image/")) onFile(index === 0 ? i : index, file); }); }} />
+      <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => handle(e.target.files[0])} />
     </div>
+  );
+}
+
+// Gemeinsamer Button: beide Fotos auf einmal wählen
+function BothPhotosButton({ onFiles }) {
+  const inputRef = useRef();
+  return (
+    <>
+      <button
+        onClick={() => inputRef.current.click()}
+        style={{ width: "100%", padding: "12px", borderRadius: 10, border: `1px dashed ${GOLD_BORDER}`, background: GOLD_DIM, color: GOLD, fontSize: 12, cursor: "pointer", letterSpacing: "0.06em", marginTop: 10 }}
+      >
+        📷 Beide Fotos gleichzeitig auswählen
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const files = Array.from(e.target.files).filter(f => f.type.startsWith("image/"));
+          files.slice(0, 2).forEach((file, i) => onFiles(i, file));
+        }}
+      />
+    </>
   );
 }
 
@@ -187,9 +214,11 @@ ${listing.beschreibung}
         {/* UPLOAD */}
         {step === "upload" && (
           <div style={{ animation: "fadeUp 0.4s ease both" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 10 }}>
               {[0, 1].map(i => <PhotoSlot key={i} index={i} photo={photos[i]} onFile={handleFile} onRemove={handleRemove} />)}
             </div>
+            <BothPhotosButton onFiles={handleFile} />
+            <div style={{ height: 12 }} />
             <div style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
               <span style={{ fontSize: 16, opacity: 0.5 }}>◎</span>
               <div style={{ flex: 1 }}>
