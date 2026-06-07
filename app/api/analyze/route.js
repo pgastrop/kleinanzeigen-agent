@@ -26,24 +26,26 @@ Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Backticks, kein Text da
   "empfKategoriePfad": "z.B. Elektronik > Audio > Mikrofon"
 }`;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-
-    const body = {
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: mimeType1, data: photo1 } },
-          { inline_data: { mime_type: mimeType2, data: photo2 } },
-        ]
-      }],
-      generationConfig: { temperature: 0.4 }
-    };
-
-    const res = await fetch(url, {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        max_tokens: 1500,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: `data:${mimeType1};base64,${photo1}`, detail: "low" } },
+              { type: "image_url", image_url: { url: `data:${mimeType2};base64,${photo2}`, detail: "low" } },
+            ],
+          },
+        ],
+      }),
     });
 
     if (!res.ok) {
@@ -52,13 +54,13 @@ Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Backticks, kein Text da
     }
 
     const data = await res.json();
-    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const raw = data.choices?.[0]?.message?.content || "";
     const clean = raw.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(clean);
 
     return Response.json({ success: true, data: parsed });
   } catch (error) {
-    console.error("Gemini error:", error);
+    console.error("OpenAI error:", error);
     return Response.json(
       { success: false, error: error.message },
       { status: 500 }
