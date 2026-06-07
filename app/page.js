@@ -55,7 +55,7 @@ function PhotoSlot({ index, photo, onFile, onRemove }) {
           <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", textAlign: "center", lineHeight: 1.6 }}>Foto {index + 1}<br /><span style={{ fontSize: 10, opacity: 0.6 }}>tippen · ziehen</span></div>
         </div>
       )}
-      <input ref={inputRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={(e) => handle(e.target.files[0])} />
+      <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => handle(e.target.files[0])} />
     </div>
   );
 }
