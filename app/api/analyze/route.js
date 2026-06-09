@@ -83,18 +83,21 @@ export async function POST(request) {
       );
     }
 
-    // ── Payload size guard ──
-    const contentLength = Number(request.headers.get("content-length") || 0);
-    if (contentLength > MAX_PAYLOAD_BYTES) {
+    // ── Payload size guard (reads raw bytes — works with chunked transfers too) ──
+    const rawBody = await request.text();
+    if (rawBody.length > MAX_PAYLOAD_BYTES) {
       return Response.json(
         { success: false, error: "Payload zu groß. Maximal 10 MB." },
         { status: 413 }
       );
     }
 
-    const body = await request.json();
-    // Note: content-length header check above is sufficient for our use case.
-    // Double-serialization removed to avoid 2x memory peak.
+    let body;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return Response.json({ success: false, error: "Ungültiges JSON." }, { status: 400 });
+    }
 
     const { photos = [], location = "Deutschland", extraHint = "" } = body;
 
@@ -168,7 +171,7 @@ Beispiele: "RØDE NT-USB Mikrofon, 0.8" / "Bosch PSB 18 LI-2, 0.7" / "Sony WH-10
 
     const marktdatenStr = priceData
       ? `${priceData.count} Anzeigen: ${priceData.min}–${priceData.max} €, Median ${priceData.median} €, empfohlen ${fixedPrice} €`
-      : "Keine Marktdaten verfügbar – Schätzung";
+      : "Marktpreise konnten nicht abgerufen werden – KI-Schätzung (kein Echtzeitwert)";
 
     const preisRange = priceData ? `${priceData.min}–${priceData.max}` : "?–?";
     const preisStrategie = priceData && fixedPrice
