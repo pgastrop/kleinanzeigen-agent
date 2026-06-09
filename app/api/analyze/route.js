@@ -5,45 +5,17 @@ export const maxDuration = 60;
 
 const MAX_PAYLOAD_BYTES = 10_000_000; // 10 MB
 
+const SCRAPER_URL = process.env.SCRAPER_URL || "http://localhost:8000";
+
 async function scrapeKleinanzeigenPrices(produktName) {
   try {
-    // Kleinanzeigen uses hyphenated slugs, not percent-encoded spaces
-    const query = produktName.trim()
-      .toLowerCase()
-      .replace(/[äöüß]/g, c => ({ ä:"ae", ö:"oe", ü:"ue", ß:"ss" }[c]))
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    const url = `https://www.kleinanzeigen.de/seite:1/s-${query}/k0`;
-
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-        "Accept-Language": "de-DE,de;q=0.9",
-        "Accept": "text/html",
-      },
-      signal: AbortSignal.timeout(8000),
+    const q = encodeURIComponent(produktName.trim().slice(0, 100));
+    const res = await fetch(`${SCRAPER_URL}/prices?q=${q}`, {
+      signal: AbortSignal.timeout(12000),
     });
-
     if (!res.ok) return null;
-    const html = await res.text();
-
-    const priceMatches = [...html.matchAll(/(\d{1,2}\.?\d{3}|\d{1,4})\s*€/g)]
-      .map(m => parseInt(m[1].replace(/\./g, ""), 10))
-      .filter(p => Number.isFinite(p) && p >= 1 && p <= 50000);
-
-    if (priceMatches.length < 3) return null;
-
-    priceMatches.sort((a, b) => a - b);
-    const trimLow  = Math.floor(priceMatches.length * 0.1);
-    const trimHigh = Math.floor(priceMatches.length * 0.2);
-    const trimmed  = priceMatches.slice(trimLow, priceMatches.length - trimHigh);
-    if (trimmed.length < 2) return null;
-
-    const min    = trimmed[0];
-    const max    = trimmed[trimmed.length - 1];
-    const median = trimmed[Math.floor(trimmed.length / 2)];
-
-    return { min, max, median, count: priceMatches.length };
+    const data = await res.json();
+    return { min: data.min, max: data.max, median: data.median, count: data.count };
   } catch {
     return null;
   }
