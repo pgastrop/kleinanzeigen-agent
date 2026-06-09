@@ -1,5 +1,27 @@
 "use client";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, Component } from "react";
+import { formatPreis, makePriceLabel, makeDeliveryLabel, makeListingText } from "../lib/format.js";
+
+/* ─── Error Boundary ─── */
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 40, textAlign: "center", fontFamily: "sans-serif" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>😕</div>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: "#1a1714" }}>Etwas ist schiefgelaufen</div>
+          <div style={{ fontSize: 13, color: "#9c958c", marginBottom: 24 }}>{this.state.error?.message}</div>
+          <button onClick={() => this.setState({ hasError: false, error: null })} style={{ padding: "12px 24px", borderRadius: 10, background: "#ff6b35", color: "#fff", border: "none", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>
+            Neu versuchen
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /* ─── helpers ─── */
 function compressImage(file) {
@@ -382,27 +404,8 @@ export default function Home() {
   };
 
   /* listing text */
-  const formatPreis = (preis) => {
-    const n = Number(preis);
-    if (!Number.isFinite(n)) return "0,00";
-    // Immer 2 Dezimalstellen, deutsche Formatierung
-    return n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  };
-
-  const makePriceLabel = (preis, pt) => {
-    const p = formatPreis(preis);
-    if (pt === "vb") return `${p} € VB`;
-    return `${p} € (Festpreis)`;
-  };
-
-  const makeDeliveryLabel = (dt) => {
-    if (dt === "abholung") return "Nur Abholung";
-    if (dt === "versand")  return "Versand möglich";
-    return "Abholung oder Versand möglich";
-  };
-
-  const makeText = (l, a, pt, dt) => !l ? "" :
-    `📦 ${l.titel}\n💰 ${makePriceLabel(l.preis, pt ?? "fest")}\n📍 ${l.ort}\n⭐ Zustand: ${l.zustand}\n🚚 ${makeDeliveryLabel(dt ?? "beide")}\n\n${l.beschreibung}\n\n🏷️ ${l.kategorie}${a?.tags?.length ? "\n" + a.tags.map(t => "#" + t).join(" ") : ""}`;
+  // formatPreis, makePriceLabel, makeDeliveryLabel, makeListingText → imported from lib/format.js
+  const makeText = (l, a, pt, dt) => makeListingText(l, a, pt ?? "fest", dt ?? "beide");
 
   const listingText = makeText(listing, analysis, priceType, deliveryType);
 
@@ -510,7 +513,8 @@ export default function Home() {
 
   /* ── RENDER ── */
   return (
-    <main style={{ minHeight: "100vh", padding: "40px 16px 100px" }}>
+    <ErrorBoundary>
+      <main style={{ minHeight: "100vh", padding: "40px 16px 100px" }}>
       <a ref={linkRef} href="/api/redirect" target="_blank" rel="noreferrer" style={{ display: "none" }}>go</a>
 
       <div style={{ maxWidth: 560, margin: "0 auto" }}>
@@ -538,8 +542,8 @@ export default function Home() {
             Fotos hochladen — KI erkennt den Artikel, recherchiert Marktpreise und schreibt die Anzeige.
           </p>
 
-          {/* Queue badge */}
-          {queue.length > 0 && (
+          {/* Queue badge — only show after hydration to avoid flash */}
+          {queue.length > 0 && hydrated && (
             <button onClick={() => setStep("queue")} style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 16, padding: "8px 16px", borderRadius: 20, border: "1.5px solid var(--orange-border)", background: "var(--orange-bg)", color: "var(--orange-dark)", fontSize: 12, fontWeight: 700, cursor: "pointer", animation: "popIn 0.3s ease both", transition: "all 0.2s" }}
               onMouseEnter={e => e.currentTarget.style.boxShadow = "var(--shadow-orange)"}
               onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
@@ -558,6 +562,9 @@ export default function Home() {
           )}
         </header>
 
+        {!hydrated && (
+          <div style={{ height: 8, background: "linear-gradient(90deg, var(--bg3) 25%, var(--orange-bg) 50%, var(--bg3) 75%)", backgroundSize: "200% 100%", borderRadius: 4, marginBottom: 16, animation: "shimmer 1.5s infinite" }} />
+        )}
         <StepBar step={step} />
 
         {/* ── UPLOAD ── */}
@@ -845,7 +852,7 @@ export default function Home() {
 
             {/* Actions */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-              <Btn variant="secondary" size="lg" onClick={saveToQueue} disabled={styleLoading} style={{ flexDirection: "column", gap: 2, width: "100%", padding: "14px" }}>
+              <Btn variant="secondary" size="lg" onClick={() => saveToQueue().catch(e => setError("Speichern fehlgeschlagen: " + e.message))} disabled={styleLoading} style={{ flexDirection: "column", gap: 2, width: "100%", padding: "14px" }}>
                 <span>💾 Speichern</span>
                 <span style={{ fontSize: 10, fontWeight: 500, color: "var(--text3)" }}>+ nächster Artikel</span>
               </Btn>
@@ -981,6 +988,7 @@ export default function Home() {
           Preise basieren auf Marktrecherche · Kein Anspruch auf Genauigkeit
         </footer>
       </div>
-    </main>
+      </main>
+    </ErrorBoundary>
   );
 }

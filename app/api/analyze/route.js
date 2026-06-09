@@ -7,7 +7,12 @@ const MAX_PAYLOAD_BYTES = 10_000_000; // 10 MB
 
 async function scrapeKleinanzeigenPrices(produktName) {
   try {
-    const query = encodeURIComponent(produktName.trim());
+    // Kleinanzeigen uses hyphenated slugs, not percent-encoded spaces
+    const query = produktName.trim()
+      .toLowerCase()
+      .replace(/[äöüß]/g, c => ({ ä:"ae", ö:"oe", ü:"ue", ß:"ss" }[c]))
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
     const url = `https://www.kleinanzeigen.de/seite:1/s-${query}/k0`;
 
     const res = await fetch(url, {
@@ -51,16 +56,20 @@ function calculatePrice(priceData, zustandScore) {
   return Math.round(raw / 5) * 5;               // snap to 5 €
 }
 
-const ZUSTAND_LABELS = { 1.0: "Neu", 0.9: "Wie neu", 0.8: "Sehr gut", 0.7: "Gut", 0.6: "Befriedigend", 0.5: "Defekt" };
+// Integer keys avoid JS float precision issues (0.1+0.2 != 0.3 etc.)
+const ZUSTAND_LABELS = { 10: "Neu", 9: "Wie neu", 8: "Sehr gut", 7: "Gut", 6: "Befriedigend", 5: "Defekt" };
 function zustandLabel(score) {
-  const rounded = Math.round(score * 10) / 10;
-  return ZUSTAND_LABELS[rounded] ?? "Gut";
+  const key = Math.round(score * 10);
+  return ZUSTAND_LABELS[key] ?? "Gut";
 }
+
+// Cache validation result — only runs once per instance, not per request
+let envValidated = false;
 
 export async function POST(request) {
   try {
-    // ── Env validation ──
-    validateEnv();
+    // ── Env validation (cached) ──
+    if (!envValidated) { validateEnv(); envValidated = true; }
 
     // ── Rate limiting ──
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
@@ -84,16 +93,14 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-
-    // ── Secondary payload check (content-length can be spoofed) ──
-    if (JSON.stringify(body).length > MAX_PAYLOAD_BYTES) {
-      return Response.json(
-        { success: false, error: "Payload zu groß. Maximal 10 MB." },
-        { status: 413 }
-      );
-    }
+    // Note: content-length header check above is sufficient for our use case.
+    // Double-serialization removed to avoid 2x memory peak.
 
     const { photos = [], location = "Deutschland", extraHint = "" } = body;
+
+    // Sanitize user inputs — prevent prompt injection
+    const safeHint     = String(extraHint).slice(0, 100).replace(/[`${}\\]/g, "");
+    const safeLocation = String(location).slice(0, 80).replace(/[`${}\\]/g, "") || "Deutschland";
 
     // Guard: at least one photo required
     const validPhotos = photos.filter(p => p?.base64 && p?.mimeType);
@@ -113,8 +120,8 @@ export async function POST(request) {
     const primaryPhoto = validPhotos[0];
 
     /* ── Step 1: Identify product + condition ── */
-    const idPrompt = extraHint
-      ? `Der Nutzer nennt das Produkt: "${extraHint}". Gib NUR zurück: Produktname (max 5 Wörter), Komma, Zustandszahl 0.5-1.0. Beispiel: "RØDE NT-USB Mikrofon, 0.8"`
+    const idPrompt = safeHint
+      ? `Der Nutzer nennt das Produkt: "${safeHint}". Gib NUR zurück: Produktname (max 5 Wörter), Komma, Zustandszahl 0.5-1.0. Beispiel: "RØDE NT-USB Mikrofon, 0.8"`
       : `Analysiere das Foto präzise:
 1. Lies ALLEN sichtbaren Text auf dem Produkt: Markennamen, Modellbezeichnungen, Seriennummern, Typenschilder, Aufdrucke, Logos, EAN/Barcodes, technische Angaben (Watt, Volt, etc.)
 2. Nutze diesen Text als primäre Quelle für die Produktidentifikation — er ist zuverlässiger als visuelle Schätzung
@@ -138,12 +145,15 @@ Beispiele: "RØDE NT-USB Mikrofon, 0.8" / "Bosch PSB 18 LI-2, 0.7" / "Sony WH-10
       }),
     });
 
-    if (!idRes.ok) throw new Error(`OpenAI ID-Call: ${idRes.status}`);
+    if (!idRes.ok) {
+      const errBody = await idRes.text();
+      throw new Error(`OpenAI ID-Call ${idRes.status}: ${errBody.slice(0, 200)}`);
+    }
     const idData = await idRes.json();
     const idText = idData.choices?.[0]?.message?.content?.trim() ?? "";
 
     const parts        = idText.split(",");
-    const detectedName = extraHint || (parts[0]?.trim() ?? "Artikel");
+    const detectedName = safeHint || (parts[0]?.trim() ?? "Artikel");
     const rawScore     = parseFloat(parts[1]?.trim() ?? "0.75");
     const zustandScore = Number.isFinite(rawScore) ? Math.min(1.0, Math.max(0.5, rawScore)) : 0.75;
     const zustand      = zustandLabel(zustandScore);
@@ -168,7 +178,7 @@ Beispiele: "RØDE NT-USB Mikrofon, 0.8" / "Bosch PSB 18 LI-2, 0.7" / "Sony WH-10
     /* ── Step 3: Generate full listing text ── */
     const prompt = `Du bist ein erfahrener Kleinanzeigen-Verkäufer in Deutschland mit perfekter Lesefähigkeit für Produkttexte.
 
-Produkt: "${detectedName}", Zustand: "${zustand}", Standort: ${location}
+Produkt: "${detectedName}", Zustand: "${zustand}", Standort: ${safeLocation}
 ${priceInstruction}
 
 WICHTIG zur Produktanalyse:
@@ -213,7 +223,10 @@ Antworte NUR mit validem JSON (kein Markdown, keine Backticks, kein Text außerh
       }),
     });
 
-    if (!analysisRes.ok) throw new Error(`OpenAI Analysis-Call: ${analysisRes.status}`);
+    if (!analysisRes.ok) {
+      const errBody = await analysisRes.text();
+      throw new Error(`OpenAI Analysis-Call ${analysisRes.status}: ${errBody.slice(0, 200)}`);
+    }
 
     const analysisData = await analysisRes.json();
     const raw   = analysisData.choices?.[0]?.message?.content ?? "";

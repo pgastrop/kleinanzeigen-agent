@@ -41,9 +41,11 @@ Klingt wie ein normaler Mensch der ehrlich etwas verkauft.`,
   },
 };
 
+let envValidated = false;
+
 export async function POST(request) {
   try {
-    validateEnv();
+    if (!envValidated) { validateEnv(); envValidated = true; }
 
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
     const rl = checkRateLimit(ip);
