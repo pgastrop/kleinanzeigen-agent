@@ -1,3 +1,6 @@
+import { checkRateLimit } from "../../../lib/ratelimit.js";
+import { validateEnv }    from "../../../lib/env.js";
+
 export const maxDuration = 30;
 
 const STYLES = {
@@ -40,7 +43,23 @@ Klingt wie ein normaler Mensch der ehrlich etwas verkauft.`,
 
 export async function POST(request) {
   try {
+    validateEnv();
+
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const rl = checkRateLimit(ip);
+    if (!rl.allowed) {
+      return Response.json(
+        { success: false, error: `Zu viele Anfragen. Bitte ${rl.retryAfter}s warten.` },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+      );
+    }
+
     const { produktName, zustand, preis, kategorie, ort, versand, styleKey } = await request.json();
+
+    // Input validation
+    if (!produktName || !styleKey) {
+      return Response.json({ success: false, error: "Produktname und Stil sind erforderlich." }, { status: 400 });
+    }
 
     const style = STYLES[styleKey];
     if (!style) throw new Error(`Unbekannter Stil: ${styleKey}`);

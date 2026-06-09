@@ -1,4 +1,9 @@
+import { checkRateLimit } from "../../../lib/ratelimit.js";
+import { validateEnv }    from "../../../lib/env.js";
+
 export const maxDuration = 60;
+
+const MAX_PAYLOAD_BYTES = 10_000_000; // 10 MB
 
 async function scrapeKleinanzeigenPrices(produktName) {
   try {
@@ -54,13 +59,54 @@ function zustandLabel(score) {
 
 export async function POST(request) {
   try {
+    // ── Env validation ──
+    validateEnv();
+
+    // ── Rate limiting ──
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+             || request.headers.get("x-real-ip")
+             || "unknown";
+    const rl = checkRateLimit(ip);
+    if (!rl.allowed) {
+      return Response.json(
+        { success: false, error: `Zu viele Anfragen. Bitte ${rl.retryAfter}s warten.` },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+      );
+    }
+
+    // ── Payload size guard ──
+    const contentLength = Number(request.headers.get("content-length") || 0);
+    if (contentLength > MAX_PAYLOAD_BYTES) {
+      return Response.json(
+        { success: false, error: "Payload zu groß. Maximal 10 MB." },
+        { status: 413 }
+      );
+    }
+
     const body = await request.json();
+
+    // ── Secondary payload check (content-length can be spoofed) ──
+    if (JSON.stringify(body).length > MAX_PAYLOAD_BYTES) {
+      return Response.json(
+        { success: false, error: "Payload zu groß. Maximal 10 MB." },
+        { status: 413 }
+      );
+    }
+
     const { photos = [], location = "Deutschland", extraHint = "" } = body;
 
     // Guard: at least one photo required
     const validPhotos = photos.filter(p => p?.base64 && p?.mimeType);
     if (validPhotos.length === 0) {
       return Response.json({ success: false, error: "Kein Foto übermittelt." }, { status: 400 });
+    }
+
+    // Guard: max 6 photos, base64 length sanity check
+    if (validPhotos.length > 6) {
+      return Response.json({ success: false, error: "Maximal 6 Fotos erlaubt." }, { status: 400 });
+    }
+    if (validPhotos.some(p => p.base64.length > 2_000_000)) {
+      return Response.json({ success: false, error: "Ein Foto ist zu groß (max 1.5 MB nach Komprimierung)." }, { status: 400 });
     }
 
     // Use first photo for quick product ID, rest for full analysis

@@ -273,24 +273,29 @@ export default function Home() {
   const MAX = 6;
   const empty = () => Array(MAX).fill(null);
 
-  // ── Persistenz: aus localStorage laden beim Start ──
-  const loadFromStorage = (key, fallback) => {
-    if (typeof window === "undefined") return fallback;
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : fallback;
-    } catch { return fallback; }
-  };
-
+  // ── Persistenz: SSR-sicher (kein Hydration-Mismatch) ──
   const [photos, setPhotos]       = useState(empty());
-  const [location, setLocation]   = useState(() => loadFromStorage("kaz_location", "St. Leon-Rot, 68789"));
+  const [location, setLocation]   = useState(""); // wird aus localStorage geladen
   const [step, setStep]           = useState("upload");
   const [analysis, setAnalysis]   = useState(null);
   const [listing, setListing]     = useState(null);
   const [error, setError]         = useState(null);
   const [correction, setCorrection] = useState("");
   const [tab, setTab]             = useState("preview");
-  const [queue, setQueue]         = useState(() => loadFromStorage("kaz_queue", []));
+  const [queue, setQueue]         = useState([]);
+  const [hydrated, setHydrated]   = useState(false);
+  const [confirmModal, setConfirmModal] = useState(null); // { message, onConfirm }
+
+  // Erst nach Hydration aus localStorage laden — verhindert SSR-Mismatch
+  useEffect(() => {
+    try {
+      const savedQueue    = localStorage.getItem("kaz_queue");
+      const savedLocation = localStorage.getItem("kaz_location");
+      if (savedQueue)    setQueue(JSON.parse(savedQueue));
+      if (savedLocation) setLocation(JSON.parse(savedLocation));
+    } catch {}
+    setHydrated(true);
+  }, []);
   const [editingIdx, setEditingIdx] = useState(null);
   const [publishSnap, setPublishSnap] = useState(null);
   const [publishIdx, setPublishIdx]   = useState(null);
@@ -433,7 +438,9 @@ export default function Home() {
     setPublishSnap({ listing: l, analysis: a, text, priceType: pt ?? priceType, deliveryType: dt ?? deliveryType });
     setPublishIdx(idx);
     setStep("publish");
-    setTimeout(() => linkRef.current?.click(), 500);
+    // Small delay allows setState to flush before programmatic click
+    const REDIRECT_DELAY_MS = 300;
+    setTimeout(() => linkRef.current?.click(), REDIRECT_DELAY_MS);
   };
 
   const publishCurrent  = ()    => publishItem({ ...listing }, { ...analysis }, null);
@@ -489,11 +496,16 @@ export default function Home() {
   };
 
   const clearAllData = () => {
-    if (!confirm("Alle gespeicherten Artikel und Daten löschen?")) return;
-    setQueue([]);
-    clearPhotos(); setAnalysis(null); setListing(null);
-    setStep("upload"); setEditingIdx(null); setPublishSnap(null);
-    try { localStorage.removeItem("kaz_queue"); } catch {}
+    setConfirmModal({
+      message: "Alle gespeicherten Artikel und Daten löschen?",
+      onConfirm: () => {
+        setQueue([]);
+        clearPhotos(); setAnalysis(null); setListing(null);
+        setStep("upload"); setEditingIdx(null); setPublishSnap(null);
+        try { localStorage.removeItem("kaz_queue"); } catch {}
+        setConfirmModal(null);
+      },
+    });
   };
 
   /* ── RENDER ── */
@@ -585,7 +597,7 @@ export default function Home() {
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                <input value={location} onChange={e => setLocation(e.target.value)} style={{ flex: 1, background: "none", border: "none", color: "var(--text)", fontSize: 14, fontWeight: 600 }} placeholder="Stadt oder PLZ" />
+                <input value={location} onChange={e => setLocation(e.target.value)} style={{ flex: 1, background: "none", border: "none", color: "var(--text)", fontSize: 14, fontWeight: 600 }} placeholder="Stadt oder PLZ eingeben…" />
               </div>
             </Card>
 
@@ -946,6 +958,21 @@ export default function Home() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <Btn variant="ghost" onClick={() => setStep("upload")} style={{ width: "100%" }}>+ Neuer Artikel</Btn>
               <Btn variant="ghost" onClick={resetAll} style={{ width: "100%" }}>↺ Alles zurücksetzen</Btn>
+            </div>
+          </div>
+        )}
+
+        {/* ── CONFIRM MODAL ── */}
+        {confirmModal && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20, animation: "fadeIn 0.15s ease" }}>
+            <div style={{ background: "#fff", borderRadius: "var(--radius)", padding: 28, maxWidth: 360, width: "100%", boxShadow: "var(--shadow-lg)", animation: "fadeUp 0.2s ease" }}>
+              <div style={{ fontSize: 32, marginBottom: 12, textAlign: "center" }}>⚠️</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", textAlign: "center", marginBottom: 8 }}>{confirmModal.message}</div>
+              <div style={{ fontSize: 13, color: "var(--text3)", textAlign: "center", marginBottom: 24 }}>Diese Aktion kann nicht rückgängig gemacht werden.</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Btn variant="ghost" onClick={() => setConfirmModal(null)} style={{ width: "100%" }}>Abbrechen</Btn>
+                <Btn variant="danger" onClick={confirmModal.onConfirm} style={{ width: "100%" }}>Löschen</Btn>
+              </div>
             </div>
           </div>
         )}
